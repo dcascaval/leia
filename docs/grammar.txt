@@ -1,0 +1,129 @@
+ // L1 has a fairly complex type system, but it doesn't have arrays, or references...
+ // It has aggregate types only in the form of lists and tuples. 
+ // L1 does NOT include first-class functions.
+ GLOBAL_STMT := TYPE_DEFN | FN_DEFN 
+ 
+ TYPE_DEFN := `type` IDENT `=` (STRUCT_DEFN | ENUM_DEFN)
+ STRUCT_DEFN := `{` STRUCT_DEFN_ITEMS `}` 
+ STRUCT_DEFN_ITEM := IDENT `:` TYPE
+ STRUCT_DEFN_ITEMS := nil | STRUCT_DEFN_ITEM (nil | `,` STRUCT_DEFN_ITEMS) // Optional trailing commas
+ ENUM_DEFN := ENUM_ITEM | ENUM_ITEMS
+ ENUM_ITEM := IDENT (nil | `:` TYPE)
+ ENUM_ITEMS := nil | ENUM_ITEM | ENUM_ITEM `|` ENUM_ITEMS
+
+ // Should we allow anonymous sum types?
+ SPACED_TYPES := TYPE (nil | TYPE)
+ TYPE := 
+    SPACED_TYPES      // Generics, i.e. `t list list`
+  | TYPE_LIST         // Tuples i.e. `(int,int)`
+  | STRUCT_DEFN       // Composities i.e. `{ k : TYPE, y : TYPE }`
+
+ TYPE_LIST := TYPE (nil | `,` TYPE_LIST)
+ IDENT_LIST := IDENT (nil | `,` IDENT_LIST)                                // No trailing commas
+
+ FN_DEFN := `fn` IDENT `(` (nil | ARG_LIST) `)` (nil | TYPE) EXPRESSION
+ ARG := IDENT (nil | `:` TYPE)  
+ ARG_LIST := ARG (nil | `,` ARG_LIST)
+ STMT_LIST := STMT (nil | `;` STMT_LIST)                                  // Semi-colon separated.
+ STMT :=  
+    LET_STMT 
+  | ASSIGN_STMT
+  | EXPRSSION
+  | CONTROL_STMT 
+
+ LET_STMT := `let` PATTERN `=` EXPRESSION; 
+ ASSIGN_STMT := LVALUE `=` EXPRESSION; 
+ CONTROL_STMT := 
+    LOOP_STMT 
+  | IF_STMT
+  | MATCH_STMT
+  | RETURN_STMT
+  | `break` 
+
+ // Future extension: named loops
+ // Stmt lists return a type... The type of the loop expression is that aggregate
+ // Or it will be, when we have arrays. For now, it will be a list.
+ LOOP_STMT := `loop` `{` (nil | STMT_LIST) `}` 
+
+ // Branches can be simple, non-braced expressions, but then you need the `then`.
+ // Additionally, this is one of the few areas where we explicitly allow empty blocks.
+ IF_STMT := `if` EXPRESSION (then EXPRESSION | `{` (nil | EXPRESSION) `}` `else` EXPRESSION | `{ (nil | EXPRESSION) `}`
+ MATCH_STMT := `match` EXPRESSION `{` MATCH_CASES `}`
+ MATCH_CASE := PATTERN `->` EXPRESSION
+ MATCH_CASES := MATCH_CASE (nil | `|` MATCH_CASE)                        // Pipe-separated.
+ RETURN_STMT := `return` EXPRESSION
+
+ // We can make these const variables, but that's an entire other layer.
+ NUMERIC_PATTERN := 
+    INT_LITERAL (nil | `to` INT_LITERAL)
+  | FLOAT_LITERAL (nil | `to` FLOAT_LITERAL)
+  | HEX_LITERAL (nil | `to` HEX_LITERAL)
+
+// It either binds ident to the equivalent struct field variable, 
+// or continues to destructure that variable. If the desired name differs 
+// from that of the struct field, one must 'destructure' into a ident pattern.
+STRUCT_PATTERN_FIELD := IDENT (nil | `:` PATTERN)
+STRUCT_PATTERN_FIELDS :=  // Optional trailing commas
+  nil 
+ | STRUCT_PATTERN_FIELD 
+ | STRUCT_PATTERN_FIELD `,` STRUCT_PATTERN_FIELDS 
+STRUCT_PATTERN := (nil | IDENT) `{` STRUCT_PATTERN_FIELDS `}`
+
+ENUM_PATTERN_LIST := PATTERN (nil | `,` ENUM_PATTERN_LIST)
+ENUM_PATTERN := IDENT (nil | `(` ENUM_PATTERN_LIST `)`
+TUPLE_PATTERN := `(` (nil | ENUM_PATTERN_LIST) `)`
+
+ PATTERN := 
+    NUMERIC_PATTERN
+  | BOOL_LITERAL 
+  | STRUCT_PATTERN
+  | ENUM_PATTERN
+  | IDENT             // Normal variable
+
+ BINOP := `+` | `-` | `*` | `/` | `%` | `&&` | `||` | `==` | `!=` | `<` | `<=` | `>` | `>=` | CUSTOM_DEFN
+ UNOP  := `!` | `-`
+ BOOL_LITERAL := `true` | `false`
+
+ // If we add functions to numeric types, this breaks a bit
+ INT_LITERAL := DECIMAL (DECIMAL | `_`)*                    // Leading zeroes are just zeroes.
+ HEX_LITERAL := `hex` HEXADECIMAL (HEXADECIMAL | `_`)*     
+ FLOAT_LITERAL := INT_LITERAL `.` INT_LITERAL (nil | `e` INT_LITERAL) 
+ NUMERIC_LITERAL := 
+    INT_LITERAL
+  | HEX_LITERAL 
+  | FLOAT_LITERAL
+
+ IDENT := (ALPHABETIC | `_`) (ALPHADECIMAL | `_`)*
+ STRUCT_FIELD := IDENT `:` EXPRESSION
+ STRUCT_FIELDS := STRUCT_FIELD (nil | `;` STRUCT_FIELD)
+ STRUCT_LITERAL := IDENT (nil | `with`) `{` STRUCT_FIELDS `}`
+ ENUM_LITERAL := IDENT (nil | `(` EXPR_LIST `)`)
+ TUPLE_LITERAL := `(` (nil | EXPR_LIST) `)`
+ CALL := IDENT `(` EXPR_LIST `)`
+ EXPR_LIST := EXPRESSION (nil | `,` EXPRESSION)
+ FIELD_ACCESS := IDENT (nil | `.` FIELD_ACCESS | CALL)
+
+ EXPRESSION := 
+    `{` EXPRESSION `}` // Scope block
+  | `(` EXPRESSION `)` // Precedence modification
+  | STMT_LIST
+  | NUMERIC_LITERAL
+  | BOOL_LITERAL
+  | STRUCT_LITERAL
+  | ENUM_LITERAL
+  | TUPLE_LITERAL
+  | IDENT
+  | EXPRESSION `as` TYPE
+  | EXPRESSION BINOP EXPRESSION
+  | UNOP EXPRESSION
+  | FIELD_ACCESS
+  | CALL
+
+ LVALUE := 
+    IDENT
+  | FIELD_ACCESS
+
+Comments: 
+// Line Comments start with two slashes.
+
+// Maybe no block comments for now.

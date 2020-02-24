@@ -1,0 +1,36 @@
+type complex = { 
+  r : int, 
+  i : int
+}; // ? 
+
+// a "constructor"
+fn new (r : int) complex { 
+  complex { 
+    r : r, i : 0
+  }
+}
+
+type psuedo = { 
+  c : { r : int, i : int }, 
+  radian : int, 
+  d : complex
+}
+
+fn flip_flop (p : psuedo) psuedo { 
+  p with { 
+    c : p.d,  
+    d : p.c,  // Structural equality of types
+  }
+}
+
+fn main () { 
+  let a = new(100); 
+  let b = new(-100);
+  let p = psuedo { 
+    c : a, radian: -12, d: b
+  };
+  let p = flip_flop(p);
+  let p = flip_flop(p);
+  let p = flip_flop(p);
+  p.c.r + 101 // ==  1
+}

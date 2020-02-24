@@ -1,0 +1,32 @@
+
+// Here we elaborate a bit on the structure of the program
+
+fn main () int { 
+  // Functions don't have to be ordered in any particular way in a file.
+  let x = 100; 
+  let y = 300;
+  // add (x,y)
+  let z = subtract (x, y);
+  let k = add (z, // z);
+  y); // Look, it cut off.
+  k
+}
+
+fn subtract (a : int, b : int) int { 
+  // Subtraction is well known to be one of those
+  // extremely tricky operations. // still a comment
+  // fn add() // 
+  (a + b) - (b + a) // (a + b)
+                     + add(a,b)
+}
+
+fn add // comment 
+  (a : // comment 
+   int, b //comment
+   : int // )
+  ) int // comment { 
+  { 
+    a + b // comment }
+  }
+
+// == fn add (a : int, b : int) int { a + b }
