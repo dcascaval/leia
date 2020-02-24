@@ -1,6 +1,7 @@
 // Leia Compiler
 //! Lexer
-/// Currently supports only ASCII text.
+/// Supports UTF-8 encoded files, and will ignore any characters that aren't, though the
+/// lexer will fail to match any unidentified characters.
 /// 
 /// Uses a recursive matching on a byte stream rather than directly attempting 
 /// regular expressions. This allows us to make the control flow a little clearer 
@@ -29,15 +30,11 @@
     //  'delimiter' (e.g. brace, parens, etc.) such that it matches what we've parsed so far.
     //   If this horrendously fails, it likely means the user has mismatched delimiters in some
     //   unrecoverable way, and we will attempt to error accordingly.
-  
-  // Add unicode handling. 
-      // Mostly for identifiers, comments.
-      // Keywords & Numbers are still required to be valid ASCII.
 
 use crate::error::{err, errs, Error, Result};
 
 use std::char;
-use std::io::{Bytes, Read};
+use std::borrow::Cow;
 use std::iter::Peekable;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -93,14 +90,17 @@ pub enum Token {
   AS,
 }
 
-pub struct Lexer<R: Read> {
-  stream: Peekable<Bytes<R>>,
+pub struct Lexer<'a> {
+  stream: Peekable<std::str::Chars<'a>>
 }
 
-impl<R: Read> Lexer<R> {
-  pub fn new(r: R) -> Self {
+impl<'a> Lexer<'a> {
+
+  pub fn new(buf: &'a Cow<str>) -> Self {
+    let chars = buf.chars(); 
+    let peek = chars.peekable();
     Lexer {
-      stream: r.bytes().peekable(),
+      stream: peek
     }
   }
 
@@ -116,7 +116,7 @@ impl<R: Read> Lexer<R> {
 
   /// Peek at the stream. This will return the same value if called multiple times.
   fn current(&mut self) -> Result<char> {
-    if let Some(&Ok(byte)) = self.stream.peek() {
+    if let Some(&byte) = self.stream.peek() {
       return Ok(byte as char);
     }
     Err(Error::EOF)
@@ -127,7 +127,7 @@ impl<R: Read> Lexer<R> {
     let mut ch = self.current()?;
     while pred(ch) {
       self.stream.next();
-      if let Some(&Ok(b)) = self.stream.peek() {
+      if let Some(&b) = self.stream.peek() {
         ch = b as char;
       } else {
         break;
@@ -145,7 +145,7 @@ impl<R: Read> Lexer<R> {
     while pred(ch) {
       buffer.push(ch);
       self.skip();
-      if let Some(&Ok(b)) = self.stream.peek() {
+      if let Some(&b) = self.stream.peek() {
         ch = b as char;
       } else {
         break;

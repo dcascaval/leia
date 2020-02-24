@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Error, Formatter};
+use std::fmt::Debug;
 
 pub type Var = String;
 
@@ -75,12 +75,6 @@ pub enum Stmt {
   },
   Expr(Expr),
   Loop(Box<Stmt>),
-  If { 
-    condition: Expr,
-    then : Box<Stmt>, 
-    Else : Box<Stmt>
-  },
-  Match(Vec<(Pattern,Stmt)>),
   Return(Box<Expr>),
   BREAK
 }
@@ -103,7 +97,7 @@ pub enum Pattern {
     name: Var, 
     args: Vec<Pattern> 
   },
-  Variable(Var)
+  Variable(Var),
 }
 
 #[derive(Debug,Clone)]
@@ -137,7 +131,13 @@ pub enum Expr {
   Call { 
     function: Var,
     args: Vec<Expr>
-  }
+  },
+  If { 
+    condition: Box<Expr>,
+    t1 : Box<Expr>, 
+    t2 : Box<Expr>
+  },
+  Match(Vec<(Pattern,Stmt)>),
 }
 
 

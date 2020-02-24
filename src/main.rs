@@ -16,7 +16,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::thread;
 use std::time;
-use std::fmt::{Debug};
 
 fn reader(name: &str) -> std::io::BufReader<std::fs::File> {
   BufReader::new(fs::File::open(&name).unwrap_or_else(|_| panic!("File {} not found", name)))
@@ -24,28 +23,12 @@ fn reader(name: &str) -> std::io::BufReader<std::fs::File> {
 
 /// Take a filename and parse it into an AST!
 fn make_program(
-  linkfile: Option<String>,
   filename: &str,
 ) -> std::result::Result<ast::Program, error::Error> {
   let file = reader(filename);
-  match linkfile {
-    None => {
-      let mut parser = parse::Parser::new(lex::Lexer::new(file));
-      parser.parse()
-    }
-    Some(linkname) => {
-      let link = reader(&linkname);
-      let mut link_parser = parse::Parser::new(lex::Lexer::new(link));
-      let mut header = link_parser.parse()?;
-      // if !tc::valid_header(&mut header) {
-      //   return error::err("Function definition found in header.");
-      // };
-      let mut parser = parse::Parser::new_types(lex::Lexer::new(file), link_parser.types);
-      let program = parser.parse()?;
-      header.0.extend(program.0);
-      Ok(header)
-    }
-  }
+  let buf = String::from_utf8_lossy(file.buffer());
+  let mut parser = parse::Parser::new(lex::Lexer::new(&buf));
+  parser.parse()
 }
 
 // Helper macro to time evaluating an expression (like a function call.)
@@ -80,10 +63,9 @@ fn main() {
   let child = thread::Builder::new()
     .stack_size(64 * 1024 * 1024)
     .spawn(move || {
-      let filename = cfg.file.clone().unwrap();
-      let link_file = cfg.link_file.clone();
-      let program = time!(cfg,"Parse",make_program(link_file, &filename));
-      let program = match program {
+      let filename = cfg.file.clone();
+      let program = time!(cfg,"Parse",make_program(&filename));
+      match program {
         Ok(prog) => prog,
         Err(e) => { eprintln!("{}", e); return 1 } // Parse failed!
       };
@@ -101,27 +83,7 @@ fn main() {
         return 0;
       }
 
-      // let program = elab::elaborate(program);
-      // if cfg.dump_ast {
-      //   println!("{:?}",program);
-      // }
-
-      fn print_block_stream<T:Debug>(cfg: &args::Config, blocks: &[T]) {
-        if cfg.dump_assem {
-          for block in blocks.iter() {
-            println!("{:?}\n",block);
-          }
-          println!("\n\n\n");
-        }
-      }
-
       0
-      // let result = time!(cfg,"Evaluation - SSA");
-      // println!("Result: {:?}", result2);
-      // match cfg.emit {
-      //   EmitTarget::Abstract => 0,
-      //   _ => emit::emit_x86(&filename, result2).is_err() as i32
-      // }
     })
     .unwrap();
   // Return the value from the child thread as the return value of the compiler.

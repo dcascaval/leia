@@ -2,11 +2,10 @@ use crate::ast;
 use crate::error::{errs, Error, Result};
 use crate::lex::{Lexer, Token};
 use std::collections::HashMap;
-use std::io::Read;
 use std::result;
 
-pub struct Parser<R: Read> {
-  lexer: Lexer<R>,
+pub struct Parser<'a> {
+  lexer: Lexer<'a>,
   // It's possible to intern the types.
   pub types: HashMap<String, ast::Typ>,
   next: Option<Result<Token>>,
@@ -32,12 +31,12 @@ macro_rules! expr_tier {
       };
   }
 
-impl<R: Read> Parser<R> {
+impl<'a> Parser<'a> {
   pub fn parse(&mut self) -> Result<ast::Program> {
     self.program()
   }
 
-  pub fn new(lexer: Lexer<R>) -> Self {
+  pub fn new(lexer: Lexer<'a>) -> Self {
     Parser {
       lexer,
       types: HashMap::new(),
@@ -45,7 +44,7 @@ impl<R: Read> Parser<R> {
     }
   }
 
-  pub fn new_types(lexer: Lexer<R>, types: HashMap<String, ast::Typ>) -> Self {
+  pub fn new_types(lexer: Lexer<'a>, types: HashMap<String, ast::Typ>) -> Self {
     Parser {
       lexer,
       types,
@@ -122,10 +121,10 @@ impl<R: Read> Parser<R> {
 
   fn typedef(&mut self) -> Result<ast::Gstmt> {
     let typ = self.typ()?;
-    let alias = self.ident()?;
+    let name = self.ident()?;
     self.munch(Token::SEMICOLON)?;
-    self.types.insert(alias.clone(), typ);
-    Ok(ast::Gstmt::Typedef { typ, alias })
+    self.types.insert(name.clone(), typ.clone());
+    Ok(ast::Gstmt::Typedef { typ, name })
   }
 
   fn fun_defn(&mut self) -> Result<ast::Gstmt> {
@@ -141,33 +140,19 @@ impl<R: Read> Parser<R> {
       };
     }
     self.munch(Token::RPAREN)?;
-    match self.peek()? {
-      Token::SEMICOLON => {
-        self.skip()?;
-        let hdr = false; // This is set in typecheck.
-        Ok(ast::Gstmt::FnDecl {
-          hdr,
-          typ,
-          name,
-          args,
-        })
-      }
-      _ => {
-        let body = self.block()?;
-        Ok(ast::Gstmt::FnDef {
-          typ,
-          name,
-          args,
-          body,
-        })
-      }
-    }
+    let body = self.block()?;
+    Ok(ast::Gstmt::Function {
+      typ,
+      name,
+      args,
+      body,
+    })
   }
 
   fn typ(&mut self) -> Result<ast::Typ> {
     match self.token()? {
       Token::Ident(ident) => match self.types.get(&ident) {
-        Some(t) => Ok(*t),
+        Some(t) => Ok(t.clone()),
         _ => errs(format!("Could not match ident {:?} as type", ident)),
       },
       tok => errs(format!("Could not match {:?} as type", tok)),
@@ -195,16 +180,16 @@ impl<R: Read> Parser<R> {
     self.munch(Token::LBRACE)?;
     loop {
       match self.peek()? {
-        Token::RBRACE => {
-          self.munch(Token::RBRACE)?;
-          // Turn : { { stmt } } => { stmt }
-          if stmts.len() == 1 {
-            if let ast::Stmt::Block(_) = stmts[0] {
-              return Ok(stmts.pop().unwrap());
-            }
-          };
-          return Ok(ast::Stmt::Block(stmts));
-        }
+        // Token::RBRACE => {
+        //   self.munch(Token::RBRACE)?;
+        //   // Turn : { { stmt } } => { stmt }
+        //   if stmts.len() == 1 {
+        //     if let ast::Stmt::Block(_) = stmts[0] {
+        //       return Ok(stmts.pop().unwrap());
+        //     }
+        //   };
+        //   return Ok(ast::Stmt::Block(stmts));
+        // }
         _ => stmts.push(self.stmt()?),
       }
     }
@@ -212,15 +197,13 @@ impl<R: Read> Parser<R> {
 
   fn decl(&mut self) -> Result<ast::Stmt> {
     use Token::*;
-    let typ = self.typ()?;
     let ident = self.ident()?;
     match self.peek()? {
       EQUAL => {
         self.skip()?;
         let expr = self.expr()?;
-        Ok(ast::Stmt::Defn(typ, ident, box expr))
+        Ok(ast::Stmt::Let { name: ident, value: expr})
       }
-      SEMICOLON => Ok(ast::Stmt::Decl(typ, ident)),
       tok => errs(format!("Could not match {:?} in decl/defn", tok)),
     }
   }
@@ -239,7 +222,6 @@ impl<R: Read> Parser<R> {
   }
 
   fn simp(&mut self) -> Result<ast::Stmt> {
-    use ast::Expr::*;
     use ast::Stmt::*;
 
     if self.is_type()? {
@@ -249,27 +231,10 @@ impl<R: Read> Parser<R> {
     // There could be an expression here, and we'd never be able to tell
     // the difference without fully parsing it. If it's just a variable, we're fine.
     let maybe_lvalue = self.expr()?;
-    if let Variable(id) = maybe_lvalue {
-      match self.peek()? {
-        // Token::INCR | Token::DECR => {
-        //   let postop = self.postop()?;
-        //   Ok(Asgn(id, postop, box Number(1)))
-        // }
-        // Warning: Hack
-        Token::SEMICOLON | Token::RPAREN => Ok(Expr(box Variable(id))),
-        _ => {
-          let op = self.asop()?;
-          let expr = self.expr()?;
-          Ok(Asgn(id, op, box expr))
-        }
-      }
-    } else {
-      Ok(Expr(box maybe_lvalue))
-    }
+    Ok(Expr(maybe_lvalue))
   }
 
   fn simpopt(&mut self) -> Result<ast::Stmt> {
-    use Token::*;
     match self.peek()? {
       _ => self.simp(),
     }
@@ -278,20 +243,21 @@ impl<R: Read> Parser<R> {
   fn control(&mut self) -> Result<ast::Stmt> {
     use Token::*;
     match self.peek()? {
-      IF => self.if_stmt(),
+      // IF => self.if_stmt(),
       RETURN => self.ret_stmt(),
       tok => errs(format!("Invalid token {:?} in control statement.", tok)),
     }
   }
 
-  fn if_stmt(&mut self) -> Result<ast::Stmt> {
-    self.munch(Token::IF)?;
-    self.munch(Token::LPAREN)?;
-    let condition = self.expr()?;
-    self.munch(Token::RPAREN)?;
-    let then = box self.block_stmt()?;
-    let Else = box self.block_stmt()?;
-    Ok(ast::Stmt::If { condition, then, Else })
+  fn if_stmt(&mut self) -> Result<ast::Expr> {
+    errs(String::from("Not yet implemented"))
+    // self.munch(Token::IF)?;
+    // self.munch(Token::LPAREN)?;
+    // let condition = self.expr()?;
+    // self.munch(Token::RPAREN)?;
+    // let then = box self.block_stmt()?;
+    // let Else = box self.block_stmt()?;
+    // Ok(ast::Stmt::If { condition, then, Else })
   }
 
 
@@ -365,7 +331,7 @@ impl<R: Read> Parser<R> {
       Token::MINUS | Token::LNOT => {
         let op = self.unop()?;
         let expr = self.primary_expr()?;
-        Ok(UnOp(op, box expr))
+        Ok(UnaryOp{ op, rhs: box expr })
       }
       _ => self.primary_expr(),
     }
