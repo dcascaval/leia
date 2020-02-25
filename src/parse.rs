@@ -61,15 +61,6 @@ impl<'a> Parser<'a> {
     self.lexer.token()
   }
 
-  fn is_type(&mut self) -> Result<bool> {
-    use Token::*;
-    let val = (*self.peek()?).clone();
-    match val {
-      Ident(ident) => Ok(self.types.get(&ident).is_some()),
-      _ => Ok(false),
-    }
-  }
-
   fn peek(&mut self) -> result::Result<&Token, &Error> {
     if self.next.is_none() {
       self.next = Some(self.lexer.token());
@@ -96,7 +87,7 @@ impl<'a> Parser<'a> {
   fn program(&mut self) -> Result<ast::Program> {
     let mut program = Vec::new();
     loop {
-      match self.gdecl() {
+      match self.gstmt() {
         Ok(stmt) => program.push(stmt),
         Err(Error::EOF) => {
           return Ok(ast::Program(program));
@@ -109,44 +100,46 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn gdecl(&mut self) -> Result<ast::Gstmt> {
-    if self.is_type()? {
-      self.fun_defn()
-    } else {
-      match self.peek()? {
-        tok => errs(format!("Could not match {:?} in gstmt", tok)),
-      }
+  fn gstmt(&mut self) -> Result<ast::Gstmt> {
+    match self.token()? { 
+      Token::TYPE => self.typedef(),
+      Token::FUNCTION =>  self.fun_defn(),
+      tok => errs(format!("Unknown global token: {:?}", tok))
     }
   }
 
+  // Can be a struct or an enum.
   fn typedef(&mut self) -> Result<ast::Gstmt> {
-    let typ = self.typ()?;
     let name = self.ident()?;
+    self.munch(Token::EQUAL)?;
+    let typ = self.typ()?;
     self.munch(Token::SEMICOLON)?;
     self.types.insert(name.clone(), typ.clone());
     Ok(ast::Gstmt::Typedef { typ, name })
   }
 
-  fn fun_defn(&mut self) -> Result<ast::Gstmt> {
-    let typ = self.typ()?;
-    let name = self.ident()?;
-    self.munch(Token::LPAREN)?;
-    let mut args = Vec::new();
-    while self.is_type()? {
-      args.push((self.typ()?, self.ident()?));
-      match self.peek()? {
-        Token::COMMA => self.skip()?,
-        _ => break,
-      };
+  fn arg_list(&mut self) -> Result<ast::Args> { 
+    let mut result = Vec::new(); 
+    self.munch(Token::LPAREN)?; 
+    loop { 
+      match self.token()? {
+        Token::RPAREN => return Ok(result),
+        Token::Ident(ident) => { 
+          self.munch(Token::COLON)?; 
+          let typ = self.typ()?; 
+          result.push((typ,ident))
+        },
+        tok => return errs(format!("Unknown token {:?} in argument list",tok))
+      }
     }
-    self.munch(Token::RPAREN)?;
-    let body = self.block()?;
-    Ok(ast::Gstmt::Function {
-      typ,
-      name,
-      args,
-      body,
-    })
+  }
+
+  fn fun_defn(&mut self) -> Result<ast::Gstmt> {
+    let name = self.ident()?;
+    let args = self.arg_list()?; 
+    let typ  = self.typ()?; 
+    let body = self.expr()?; 
+    Ok(ast::Gstmt::Function { typ, name, args, body })
   }
 
   fn typ(&mut self) -> Result<ast::Typ> {
@@ -175,26 +168,6 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn block(&mut self) -> Result<ast::Stmt> {
-    let mut stmts = Vec::new();
-    self.munch(Token::LBRACE)?;
-    loop {
-      match self.peek()? {
-        // Token::RBRACE => {
-        //   self.munch(Token::RBRACE)?;
-        //   // Turn : { { stmt } } => { stmt }
-        //   if stmts.len() == 1 {
-        //     if let ast::Stmt::Block(_) = stmts[0] {
-        //       return Ok(stmts.pop().unwrap());
-        //     }
-        //   };
-        //   return Ok(ast::Stmt::Block(stmts));
-        // }
-        _ => stmts.push(self.stmt()?),
-      }
-    }
-  }
-
   fn decl(&mut self) -> Result<ast::Stmt> {
     use Token::*;
     let ident = self.ident()?;
@@ -208,42 +181,10 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn stmt(&mut self) -> Result<ast::Stmt> {
-    use Token::*;
-    match self.peek()? {
-      IF | LOOP | RETURN => self.control(),
-      LBRACE => self.block(),
-      _ => {
-        let result = self.simp()?;
-        self.munch(SEMICOLON)?;
-        Ok(result)
-      }
-    }
-  }
-
-  fn simp(&mut self) -> Result<ast::Stmt> {
-    use ast::Stmt::*;
-
-    if self.is_type()? {
-      return self.decl();
-    };
-
-    // There could be an expression here, and we'd never be able to tell
-    // the difference without fully parsing it. If it's just a variable, we're fine.
-    let maybe_lvalue = self.expr()?;
-    Ok(Expr(maybe_lvalue))
-  }
-
-  fn simpopt(&mut self) -> Result<ast::Stmt> {
-    match self.peek()? {
-      _ => self.simp(),
-    }
-  }
 
   fn control(&mut self) -> Result<ast::Stmt> {
     use Token::*;
     match self.peek()? {
-      // IF => self.if_stmt(),
       RETURN => self.ret_stmt(),
       tok => errs(format!("Invalid token {:?} in control statement.", tok)),
     }
@@ -251,30 +192,33 @@ impl<'a> Parser<'a> {
 
   fn if_stmt(&mut self) -> Result<ast::Expr> {
     errs(String::from("Not yet implemented"))
-    // self.munch(Token::IF)?;
-    // self.munch(Token::LPAREN)?;
-    // let condition = self.expr()?;
-    // self.munch(Token::RPAREN)?;
-    // let then = box self.block_stmt()?;
-    // let Else = box self.block_stmt()?;
-    // Ok(ast::Stmt::If { condition, then, Else })
   }
-
-
 
   fn ret_stmt(&mut self) -> Result<ast::Stmt> {
     self.munch(Token::RETURN)?;
-    // if let Token::SEMICOLON = self.peek()? {
-    //   self.skip()?;
-    //   return Ok(ast::Stmt::Return(None));
-    // }
     let expr = self.expr()?;
-    self.munch(Token::SEMICOLON)?;
     Ok(ast::Stmt::Return(box expr))
   }
 
+  // So, the block thing
   fn expr(&mut self) -> Result<ast::Expr> {
-    self.lor_expr()
+    match self.peek()? { 
+      Token::LBRACE => { 
+        self.skip()?; 
+        let mut stmts = Vec::new(); 
+        loop { 
+          let expr = self.lor_expr()?; 
+          stmts.push(ast::Stmt::Expr(expr));
+          match self.token()? { 
+            Token::SEMICOLON => (),
+            Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+            tok => return errs(format!("Unexpected token {:?} after expression", tok))
+          };
+        }
+      },
+      Token::LPAREN => self.paren_expr(),
+      tok => return errs(format!("Unexpected token {:?} before expression", tok))
+    }
   }
 
   fn paren_expr(&mut self) -> Result<ast::Expr> {

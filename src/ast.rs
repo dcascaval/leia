@@ -52,7 +52,7 @@ pub enum Gstmt {
     typ: Typ,
     name: Var,
     args: Args,
-    body: Stmt,
+    body: Expr,
   },
 }
 
