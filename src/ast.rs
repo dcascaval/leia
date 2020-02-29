@@ -9,6 +9,7 @@ pub enum Typ {
   Bool,
   Float,
   Alias (Var),
+  Composite (Box<Typ>,Var), 
   Struct (Vec<(String,Typ)>),
   Enum (Vec<(String,Typ)>),
   Tuple (Vec<Typ>),

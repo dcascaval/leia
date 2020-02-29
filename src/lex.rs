@@ -53,6 +53,7 @@ pub enum Token {
   SEMICOLON,
   COLON,
   PIPE,
+  DOT,
 
   // Operators
   PLUS,
@@ -244,6 +245,7 @@ impl<'a> Lexer<'a> {
         '-' => self.single(Token::MINUS),
         '+' => self.single(Token::PLUS),
         '%' => self.single(Token::MOD),
+        '.' => self.single(Token::DOT),
         '=' => self.maybe_equals(Token::EQUAL, Token::EQEQ),
         '!' => self.maybe_equals(Token::LNOT, Token::NOTEQ),
         '<' => self.maybe_equals(Token::LT, Token::LTE),

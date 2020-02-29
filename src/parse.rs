@@ -108,6 +108,24 @@ impl<'a> Parser<'a> {
     }
   }
 
+  fn control(&mut self) -> Result<ast::Stmt> {
+    use Token::*;
+    match self.peek()? {
+      RETURN => self.ret_stmt(),
+      tok => errs(format!("Invalid token {:?} in control statement.", tok)),
+    }
+  }
+
+  fn if_stmt(&mut self) -> Result<ast::Expr> {
+    errs(String::from("Not yet implemented"))
+  }
+
+  fn ret_stmt(&mut self) -> Result<ast::Stmt> {
+    self.munch(Token::RETURN)?;
+    let expr = self.expr()?;
+    Ok(ast::Stmt::Return(box expr))
+  }
+
   // Can be a struct or an enum.
   fn typedef(&mut self) -> Result<ast::Gstmt> {
     let name = self.ident()?;
@@ -142,13 +160,73 @@ impl<'a> Parser<'a> {
     Ok(ast::Gstmt::Function { typ, name, args, body })
   }
 
+  fn field(&mut self) -> Result<(String,ast::Typ)> { 
+    let id = self.ident()?; 
+    self.munch(Token::COLON)?; 
+    let typ = self.typ()?;
+    Ok((id,typ))
+  }
+
   fn typ(&mut self) -> Result<ast::Typ> {
-    match self.token()? {
-      Token::Ident(ident) => match self.types.get(&ident) {
-        Some(t) => Ok(t.clone()),
-        _ => errs(format!("Could not match ident {:?} as type", ident)),
+    match self.peek()? { 
+      Token::LPAREN => { // Tuple
+        self.skip()?; 
+        let mut typs = Vec::new();
+        if let Token::RPAREN = self.peek()? {
+          self.skip()?; 
+          return Ok(ast::Typ::Tuple(typs)) 
+        }
+        loop { 
+          typs.push(self.typ()?);
+          match self.token()? { 
+            Token::COMMA => (),
+            Token::RPAREN => return Ok(ast::Typ::Tuple(typs)),
+            tok => return errs(format!("Expected comma or closing paren, got {:?}",tok)),
+          }
+        }
       },
-      tok => errs(format!("Could not match {:?} as type", tok)),
+      Token::LBRACE => { // Anonymous struct
+        self.skip()?; 
+        let mut fields = Vec::new(); 
+        if let Token::RBRACE = self.peek()? { 
+          self.skip()?; 
+          return Ok(ast::Typ::Struct(fields))
+        }
+        loop { 
+          fields.push(self.field()?); 
+          match self.token()? { 
+            Token::COMMA => (), 
+            Token::RBRACE => return Ok(ast::Typ::Struct(fields)),
+            tok => return errs(format!("Expected comma or closing brace, got {:?}",tok))
+          }
+        }
+      },
+      // Todo: implement composite type
+      Token::Ident(_) => {
+        let mut id = self.ident()?; 
+        match id.as_str() { 
+          "int" => return Ok(ast::Typ::Int),
+          "bool" => return Ok(ast::Typ::Bool), 
+          "float" => return Ok(ast::Typ::Float),
+          _ => (),
+        };
+        match self.peek()? { 
+          Token::COLON => { // enum field
+            let mut fields = Vec::new();
+            loop {
+              self.munch(Token::COLON)?; 
+              let t = self.typ()?;
+              fields.push((id,t));
+              match self.peek()? { 
+                Token::PIPE => { self.skip()?; id = self.ident()?; }
+                _ => return Ok(ast::Typ::Enum(fields))
+              }
+            }
+          },
+          _ => Ok(ast::Typ::Alias(id))
+        }
+      }, 
+      tok => return errs(format!("Expected opening paren, brace, or identifier, got {:?}",tok))
     }
   }
 
@@ -168,56 +246,26 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn decl(&mut self) -> Result<ast::Stmt> {
-    use Token::*;
-    let ident = self.ident()?;
-    match self.peek()? {
-      EQUAL => {
-        self.skip()?;
-        let expr = self.expr()?;
-        Ok(ast::Stmt::Let { name: ident, value: expr})
-      }
-      tok => errs(format!("Could not match {:?} in decl/defn", tok)),
-    }
-  }
-
-
-  fn control(&mut self) -> Result<ast::Stmt> {
-    use Token::*;
-    match self.peek()? {
-      RETURN => self.ret_stmt(),
-      tok => errs(format!("Invalid token {:?} in control statement.", tok)),
-    }
-  }
-
-  fn if_stmt(&mut self) -> Result<ast::Expr> {
-    errs(String::from("Not yet implemented"))
-  }
-
-  fn ret_stmt(&mut self) -> Result<ast::Stmt> {
-    self.munch(Token::RETURN)?;
-    let expr = self.expr()?;
-    Ok(ast::Stmt::Return(box expr))
-  }
-
   // So, the block thing
   fn expr(&mut self) -> Result<ast::Expr> {
     match self.peek()? { 
-      Token::LBRACE => { 
-        self.skip()?; 
-        let mut stmts = Vec::new(); 
-        loop { 
-          let expr = self.lor_expr()?; 
-          stmts.push(ast::Stmt::Expr(expr));
-          match self.token()? { 
-            Token::SEMICOLON => (),
-            Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
-            tok => return errs(format!("Unexpected token {:?} after expression", tok))
-          };
-        }
-      },
+      Token::LBRACE => self.block_expr(),
       Token::LPAREN => self.paren_expr(),
       tok => return errs(format!("Unexpected token {:?} before expression", tok))
+    }
+  }
+
+  fn block_expr(&mut self) -> Result<ast::Expr> { 
+    self.munch(Token::LBRACE)?; 
+    let mut stmts = Vec::new(); 
+    loop { 
+      let expr = self.lor_expr()?; 
+      stmts.push(ast::Stmt::Expr(expr));
+      match self.token()? { 
+        Token::SEMICOLON => (),
+        Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+        tok => return errs(format!("Unexpected token {:?} after expression", tok))
+      };
     }
   }
 
@@ -336,3 +384,4 @@ impl<'a> Parser<'a> {
   }
 
 }
+
