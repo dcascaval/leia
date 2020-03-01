@@ -58,12 +58,12 @@ impl<'a> Parser<'a> {
     if let Some(token) = self.next.take() {
       return token;
     }
-    self.lexer.token()
+    dbg!(self.lexer.token())
   }
 
   fn peek(&mut self) -> result::Result<&Token, &Error> {
     if self.next.is_none() {
-      self.next = Some(self.lexer.token());
+      self.next = Some(dbg!(self.lexer.token()));
     }
     self.next.as_ref().unwrap().as_ref()
   }
@@ -103,27 +103,14 @@ impl<'a> Parser<'a> {
   fn gstmt(&mut self) -> Result<ast::Gstmt> {
     match self.token()? { 
       Token::TYPE => self.typedef(),
-      Token::FUNCTION =>  self.fun_defn(),
+      Token::FUNCTION => self.fun_defn(),
       tok => errs(format!("Unknown global token: {:?}", tok))
     }
   }
 
-  fn control(&mut self) -> Result<ast::Stmt> {
-    use Token::*;
-    match self.peek()? {
-      RETURN => self.ret_stmt(),
-      tok => errs(format!("Invalid token {:?} in control statement.", tok)),
-    }
-  }
-
-  fn if_stmt(&mut self) -> Result<ast::Expr> {
-    errs(String::from("Not yet implemented"))
-  }
-
   fn ret_stmt(&mut self) -> Result<ast::Stmt> {
     self.munch(Token::RETURN)?;
-    let expr = self.expr()?;
-    Ok(ast::Stmt::Return(box expr))
+    Ok(ast::Stmt::Return(self.expr()?))
   }
 
   // Can be a struct or an enum.
@@ -137,15 +124,23 @@ impl<'a> Parser<'a> {
   }
 
   fn arg_list(&mut self) -> Result<ast::Args> { 
-    let mut result = Vec::new(); 
     self.munch(Token::LPAREN)?; 
+    let mut result = Vec::new(); 
+    if let Token::RPAREN = self.peek()?  {
+      self.skip()?; 
+      return Ok(result);
+    }
     loop { 
       match self.token()? {
-        Token::RPAREN => return Ok(result),
         Token::Ident(ident) => { 
           self.munch(Token::COLON)?; 
           let typ = self.typ()?; 
-          result.push((typ,ident))
+          result.push((typ,ident));
+          match self.peek()? {
+            Token::RPAREN => { self.skip()?; return Ok(result) },
+            Token::COMMA => self.skip()?,
+            tok => return errs(format!("Unknown token {:?} in argument list",tok))
+          }
         },
         tok => return errs(format!("Unknown token {:?} in argument list",tok))
       }
@@ -165,6 +160,30 @@ impl<'a> Parser<'a> {
     self.munch(Token::COLON)?; 
     let typ = self.typ()?;
     Ok((id,typ))
+  }
+
+  
+  fn literal_fields(&mut self) -> Result<Vec<(String,ast::Expr)>> { 
+    let mut fields = Vec::new();
+    if let Token::RBRACE = self.peek()? { 
+      return Ok(fields)
+    };
+    loop { 
+      match self.peek()? { 
+        Token::Ident(_) => {
+          let id = self.ident()?; 
+          self.munch(Token::COLON)?; 
+          let expr = self.expr()?; 
+          fields.push((id,expr));
+          match self.peek()? { 
+            Token::RBRACE => { self.skip()?; return Ok(fields) },
+            Token::SEMICOLON => self.skip()?,
+            tok => return errs(format!("Expected closing brace or semicolon, got {:?}", tok))
+          }
+        },
+        tok => return errs(format!("Expected name of struct field in literal, got {:?}", tok))
+      }
+    }
   }
 
   fn typ(&mut self) -> Result<ast::Typ> {
@@ -201,7 +220,10 @@ impl<'a> Parser<'a> {
           }
         }
       },
-      // Todo: implement composite type
+      // Composite types work as follows: 
+      // First, we parse a 'type'. Then, all of the following
+      // type keywords after it are modifiers. There are not
+      // currently any pointer types.
       Token::Ident(_) => {
         let mut id = self.ident()?; 
         match id.as_str() { 
@@ -210,7 +232,7 @@ impl<'a> Parser<'a> {
           "float" => return Ok(ast::Typ::Float),
           _ => (),
         };
-        match self.peek()? { 
+        let mut next = match self.peek()? { 
           Token::COLON => { // enum field
             let mut fields = Vec::new();
             loop {
@@ -218,12 +240,21 @@ impl<'a> Parser<'a> {
               let t = self.typ()?;
               fields.push((id,t));
               match self.peek()? { 
-                Token::PIPE => { self.skip()?; id = self.ident()?; }
-                _ => return Ok(ast::Typ::Enum(fields))
+                Token::PIPE => { self.skip()?; id = self.ident()?;  }
+                _ => { break ast::Typ::Enum(fields) } 
               }
             }
           },
-          _ => Ok(ast::Typ::Alias(id))
+          _ => ast::Typ::Alias(id)
+        }; 
+        loop { 
+          match self.peek()? { 
+            Token::Ident(_) => { 
+              let id = self.ident()?; 
+              next = ast::Typ::Composite(box next,id) 
+            }
+            _ => return Ok(next)
+          }
         }
       }, 
       tok => return errs(format!("Expected opening paren, brace, or identifier, got {:?}",tok))
@@ -246,21 +277,46 @@ impl<'a> Parser<'a> {
     }
   }
 
-  // So, the block thing
   fn expr(&mut self) -> Result<ast::Expr> {
     match self.peek()? { 
       Token::LBRACE => self.block_expr(),
       Token::LPAREN => self.paren_expr(),
+      Token::Number(_) | Token::Ident(_) => self.lor_expr(),
       tok => return errs(format!("Unexpected token {:?} before expression", tok))
     }
+  }
+
+  fn stmt(&mut self) -> Result<ast::Stmt> { 
+    match self.peek()? { 
+      Token::BREAK => Ok(ast::Stmt::BREAK),
+      Token::LET => self.let_stmt(),
+      Token::RETURN => self.ret_stmt(), 
+      Token::LOOP => self.loop_stmt(), // These should be exprs, but aren't yet
+      _ => Ok(ast::Stmt::Expr(self.expr()?)) 
+    }
+  }
+
+  fn loop_stmt(&mut self) -> Result<ast::Stmt> { 
+    self.munch(Token::LOOP)?; 
+    Ok(ast::Stmt::Loop(self.expr()?))
+  }
+
+  // Todo: patterns
+  // todo: mut
+  fn let_stmt(&mut self) -> Result<ast::Stmt> { 
+    self.munch(Token::LET)?; 
+    let name = self.ident()?;  
+    self.munch(Token::EQUAL)?; 
+    let value = self.expr()?; 
+    Ok(ast::Stmt::Let{ name, value})
   }
 
   fn block_expr(&mut self) -> Result<ast::Expr> { 
     self.munch(Token::LBRACE)?; 
     let mut stmts = Vec::new(); 
     loop { 
-      let expr = self.lor_expr()?; 
-      stmts.push(ast::Stmt::Expr(expr));
+      let expr = self.stmt()?; 
+      stmts.push(expr);
       match self.token()? { 
         Token::SEMICOLON => (),
         Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
@@ -311,11 +367,27 @@ impl<'a> Parser<'a> {
 
   expr_tier!(
     mult_expr,
-    unary_expr,
+    as_expr,
     Token::TIMES = ast::BinOp::Mul,
     Token::DIV = ast::BinOp::Div,
     Token::MOD = ast::BinOp::Mod
   );
+
+  // Binds tighter than any other expression except a unary one -- 
+  // because it basically _is_ a right-unary one, with the additional
+  // argument of the type on the right hand side. (We might eventually want to make
+  // it bind even tighter than that.)
+  fn as_expr(&mut self) -> Result<ast::Expr> { 
+    let expr = self.unary_expr()?;
+    match self.peek()? { 
+      Token::AS => { 
+        self.skip()?;
+        let target = self.typ()?; 
+        Ok(ast::Expr::AsExpression { expr: box expr, target })
+      }
+      _ => self.unary_expr(),
+    }
+  }
 
   fn unary_expr(&mut self) -> Result<ast::Expr> {
     use ast::Expr::*;
@@ -327,6 +399,16 @@ impl<'a> Parser<'a> {
       }
       _ => self.primary_expr(),
     }
+  }
+
+  fn cond_expr(&mut self) -> Result<ast::Expr> { 
+    self.munch(Token::IF)?; 
+    let condition = box self.expr()?; 
+    self.munch(Token::THEN)?; 
+    let t1 = box self.expr()?; 
+    self.munch(Token::ELSE)?; 
+    let t2 = box self.expr()?;
+    Ok(ast::Expr::If { condition, t1, t2 })
   }
 
   // Parse an argument list to a function call
@@ -352,23 +434,29 @@ impl<'a> Parser<'a> {
     // We don't want to skip here because of the other
     // stuff that expressions could 'start' with
     match self.peek()? {
-      Number(num) => {
-        let i = *num;
+      &Number(n) => {
         self.skip()?;
-        Ok(ast::Expr::IntLiteral(i))
+        Ok(ast::Expr::IntLiteral(n))
       }
-      Boolean(val) => {
-        let b = *val;
+      &Boolean(b) => {
         self.skip()?;
         Ok(ast::Expr::BoolLiteral(b))
       }
       Ident(_) => {
         let s = self.ident()?;
         match self.peek()? {
-          Token::LPAREN => Ok(ast::Expr::Call { function: s, args: self.call_list()?}),
+          Token::LPAREN => Ok(ast::Expr::Call { 
+            function: s, 
+            args: self.call_list()?
+          }),
+          Token::LBRACE => Ok(ast::Expr::StructLiteral { 
+            name: s,
+            fields: self.literal_fields()? 
+          }), 
           _ => Ok(ast::Expr::Variable(s)),
         }
       }
+      IF => self.cond_expr(),
       LPAREN => self.paren_expr(),
       LNOT => self.unary_expr(),
       tok => errs(format!("Could not match {:?} in primary_expr", tok)),

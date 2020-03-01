@@ -25,8 +25,9 @@ fn reader(name: &str) -> std::io::BufReader<std::fs::File> {
 fn make_program(
   filename: &str,
 ) -> std::result::Result<ast::Program, error::Error> {
-  let file = reader(filename);
-  let buf = String::from_utf8_lossy(file.buffer());
+  let mut file = reader(filename);
+  file.fill_buf()?;
+  let buf = dbg!(String::from_utf8_lossy(file.buffer()));
   let mut parser = parse::Parser::new(lex::Lexer::new(&buf));
   parser.parse()
 }
@@ -65,18 +66,14 @@ fn main() {
     .spawn(move || {
       let filename = cfg.file.clone();
       let program = time!(cfg,"Parse",make_program(&filename));
-      match program {
+      let program = match program {
         Ok(prog) => prog,
         Err(e) => { eprintln!("{}", e); return 1 } // Parse failed!
       };
 
-      // let valid_ast = time!(cfg,"Typecheck",tc::valid_ast(&program));
-
-      // if !valid_ast {
-      //   if cfg.dump_ast { println!("{:?}", program); }
-      //   eprintln!("Invalid AST!");
-      //   return 1; // Tc failed (sad!)
-      // }
+      if cfg.dump_ast { 
+        println!("{:?}", program); 
+      }
 
       if cfg.tc_only {
         println!("Pass typecheck.");

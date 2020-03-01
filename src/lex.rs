@@ -79,6 +79,7 @@ pub enum Token {
   // Control flow
   LOOP,
   IF,
+  THEN,
   ELSE,
   MATCH,
   RETURN,
@@ -89,6 +90,8 @@ pub enum Token {
   TYPE,
   STRUCT, 
   AS,
+  LET, 
+  WITH, // Reserve
 }
 
 pub struct Lexer<'a> {
@@ -117,8 +120,8 @@ impl<'a> Lexer<'a> {
 
   /// Peek at the stream. This will return the same value if called multiple times.
   fn current(&mut self) -> Result<char> {
-    if let Some(&byte) = self.stream.peek() {
-      return Ok(byte as char);
+    if let Some(&c) = self.stream.peek() {
+      return Ok(c);
     }
     Err(Error::EOF)
   }
@@ -218,6 +221,9 @@ impl<'a> Lexer<'a> {
         "return" => Ok(Token::RETURN), 
         "match" => Ok(Token::MATCH),
         "as" => Ok(Token::AS),
+        "with" => Ok(Token::WITH),
+        "let" => Ok(Token::LET),
+        "then" => Ok(Token::THEN),
         "true" => Ok(Token::Boolean(true)),
         "false" => Ok(Token::Boolean(false)),
         _tok => Ok(Token::Ident(ident)),

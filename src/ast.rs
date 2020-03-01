@@ -39,6 +39,8 @@ pub enum UnOp {
 }
 
 // Program, and defined intrinsics for it.
+
+#[derive(Debug)]
 pub struct Program(pub Vec<Gstmt>);
 
 pub type Args = Vec<(Typ, Var)>;
@@ -75,8 +77,8 @@ pub enum Stmt {
     value: Expr 
   },
   Expr(Expr),
-  Loop(Box<Stmt>),
-  Return(Box<Expr>),
+  Loop(Expr),
+  Return(Expr),
   BREAK
 }
 
@@ -108,7 +110,10 @@ pub enum Expr {
   IntLiteral(i64),
   BoolLiteral(bool), 
   FloatLiteral(f64),
-  StructLiteral(Vec<(Var,Expr)>),
+  StructLiteral { 
+    name: Var,
+    fields: Vec<(Var,Expr)>,
+  },
   EnumLiteral { // Like a function call!
     name: Var, 
     args: Vec<Expr>
