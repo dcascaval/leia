@@ -27,7 +27,7 @@ fn make_program(
 ) -> std::result::Result<ast::Program, error::Error> {
   let mut file = reader(filename);
   file.fill_buf()?;
-  let buf = dbg!(String::from_utf8_lossy(file.buffer()));
+  let buf = String::from_utf8_lossy(file.buffer());
   let mut parser = parse::Parser::new(lex::Lexer::new(&buf));
   parser.parse()
 }

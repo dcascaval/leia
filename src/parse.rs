@@ -14,6 +14,7 @@ pub struct Parser<'a> {
 macro_rules! expr_tier {
     ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
         fn $name(&mut self) -> Result<ast::Expr> {
+          // println!("Push {}",stringify!($name)); 
           let mut expr = self.$next()?;
           loop {
             let op = match self.peek() {
@@ -26,6 +27,7 @@ macro_rules! expr_tier {
             let rhs = self.$next()?;
             expr = ast::Expr::BinaryOp { op: op, lhs: box expr,rhs: box rhs };
           }
+          // println!("Pop {}",stringify!($name)); 
           Ok(expr)
         }
       };
@@ -58,12 +60,16 @@ impl<'a> Parser<'a> {
     if let Some(token) = self.next.take() {
       return token;
     }
-    dbg!(self.lexer.token())
+    let tok = self.lexer.token();
+    // println!("{:?}",tok);
+    tok
   }
 
   fn peek(&mut self) -> result::Result<&Token, &Error> {
     if self.next.is_none() {
-      self.next = Some(dbg!(self.lexer.token()));
+      let tok = self.lexer.token(); 
+      // println!("{:?}",tok);
+      self.next = Some(tok);
     }
     self.next.as_ref().unwrap().as_ref()
   }
@@ -278,12 +284,7 @@ impl<'a> Parser<'a> {
   }
 
   fn expr(&mut self) -> Result<ast::Expr> {
-    match self.peek()? { 
-      Token::LBRACE => self.block_expr(),
-      Token::LPAREN => self.paren_expr(),
-      Token::Number(_) | Token::Ident(_) => self.lor_expr(),
-      tok => return errs(format!("Unexpected token {:?} before expression", tok))
-    }
+    self.lor_expr()
   }
 
   fn stmt(&mut self) -> Result<ast::Stmt> { 
@@ -319,7 +320,9 @@ impl<'a> Parser<'a> {
       stmts.push(expr);
       match self.token()? { 
         Token::SEMICOLON => (),
-        Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+        Token::RBRACE => { 
+          return Ok(ast::Expr::Statements(stmts))
+        }
         tok => return errs(format!("Unexpected token {:?} after expression", tok))
       };
     }
@@ -379,25 +382,32 @@ impl<'a> Parser<'a> {
   // it bind even tighter than that.)
   fn as_expr(&mut self) -> Result<ast::Expr> { 
     let expr = self.unary_expr()?;
-    match self.peek()? { 
-      Token::AS => { 
+    match self.peek() { 
+      Ok(Token::AS) => { 
         self.skip()?;
         let target = self.typ()?; 
         Ok(ast::Expr::AsExpression { expr: box expr, target })
       }
-      _ => self.unary_expr(),
+      _ => Ok(expr)
     }
   }
 
   fn unary_expr(&mut self) -> Result<ast::Expr> {
     use ast::Expr::*;
-    match self.peek()? {
-      Token::MINUS | Token::LNOT => {
+    match self.peek() {
+      Ok(Token::MINUS) | Ok(Token::LNOT) => {
         let op = self.unop()?;
+        // println!("Push unary_expr");
         let expr = self.primary_expr()?;
+        // println!("Pop unary_expr"); 
         Ok(UnaryOp{ op, rhs: box expr })
       }
-      _ => self.primary_expr(),
+      _ => {
+        // println!("Push unary_expr");
+        let result = self.primary_expr();
+        // println!("Pop unary_expr"); 
+        result
+      }
     }
   }
 
@@ -453,12 +463,16 @@ impl<'a> Parser<'a> {
             name: s,
             fields: self.literal_fields()? 
           }), 
-          _ => Ok(ast::Expr::Variable(s)),
+          _ => {
+            // println!("Parsed variable: {}",s);
+            Ok(ast::Expr::Variable(s))
+          }
         }
       }
       IF => self.cond_expr(),
       LPAREN => self.paren_expr(),
-      LNOT => self.unary_expr(),
+      LBRACE => self.block_expr(),
+      MINUS | LNOT => self.unary_expr(),
       tok => errs(format!("Could not match {:?} in primary_expr", tok)),
     }
   }
