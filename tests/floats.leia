@@ -6,7 +6,7 @@ fn multiply_add (x : float, y : float, c : float) float {
   add(x * y, c)
 }
 
-fn main () {
+fn main () float {
   let f = 100.0; 
   let k = 1.0e2; 
   multiply_add (f,k,f+k) // about equal to 10200.0

@@ -1,7 +1,7 @@
 type complex = { 
   r : int, 
   i : int
-}; // ? 
+} // ? 
 
 // a "constructor"
 fn new (r : int) complex { 
@@ -23,7 +23,7 @@ fn flip_flop (p : psuedo) psuedo {
   }
 }
 
-fn main () { 
+fn main () int { 
   let a = new(100); 
   let b = new(-100);
   let p = psuedo { 
