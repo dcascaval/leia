@@ -1,37 +1,30 @@
+// Leia Compiler
+//! Parser
+/// Hand-rolled, recursive-descent approach using a variant of top-down
+/// operator precedence. This should directly encode the grammar in `docs/grammar.txt`
+
+// Todo: 
+// Add positional information in the form of source code spans. 
+// Here too, we should add error reasonable error messages, as well as attempted 
+// recovery (see `src/lex.rs`). We'll probably implement this as some sort of 
+// error context stack. It's as yet unclear how we'll get to the end of the displayed
+// expression: should we go to the next line? Should we find the position of the next
+// delimiting symbol in source (up to a limit) and go there? 
+// How should we display the error w/r/t the token at which it arose?
+
+// We'll want to fuzz the parser to make sure it can't crash on any valid programs, 
+// and that it doesn't accidentally drop any parsed expressions because it hit 
+// some error.
+
 use crate::ast;
 use crate::error::{errs, Error, Result};
 use crate::lex::{Lexer, Token};
-use std::collections::HashMap;
 use std::result;
 
 pub struct Parser<'a> {
   lexer: Lexer<'a>,
-  // It's possible to intern the types.
-  pub types: HashMap<String, ast::Typ>,
   next: Option<Result<Token>>,
 }
-
-macro_rules! expr_tier {
-    ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
-        fn $name(&mut self) -> Result<ast::Expr> {
-          // println!("Push {}",stringify!($name)); 
-          let mut expr = self.$next()?;
-          loop {
-            let op = match self.peek() {
-              $(Ok(&$tok) => {
-                self.skip()?;
-                $op
-              }),+
-              _ => break,
-            };
-            let rhs = self.$next()?;
-            expr = ast::Expr::BinaryOp { op: op, lhs: box expr,rhs: box rhs };
-          }
-          // println!("Pop {}",stringify!($name)); 
-          Ok(expr)
-        }
-      };
-  }
 
 impl<'a> Parser<'a> {
   pub fn parse(&mut self) -> Result<ast::Program> {
@@ -41,18 +34,10 @@ impl<'a> Parser<'a> {
   pub fn new(lexer: Lexer<'a>) -> Self {
     Parser {
       lexer,
-      types: HashMap::new(),
       next: None,
     }
   }
 
-  pub fn new_types(lexer: Lexer<'a>, types: HashMap<String, ast::Typ>) -> Self {
-    Parser {
-      lexer,
-      types,
-      next: None,
-    }
-  }
 
   // --------------------------------  HELPERS --------------------------------
 
@@ -124,7 +109,6 @@ impl<'a> Parser<'a> {
     let name = self.ident()?;
     self.munch(Token::EQUAL)?;
     let typ = self.typ()?;
-    self.types.insert(name.clone(), typ.clone());
     Ok(ast::Gstmt::Typedef { typ, name })
   }
 
@@ -189,6 +173,24 @@ impl<'a> Parser<'a> {
     }
   }
 
+  // Parse an argument list to a function call
+  fn call_list(&mut self) -> Result<Vec<ast::Expr>> {
+    self.munch(Token::LPAREN)?;
+    let mut args = Vec::new();
+    match self.peek()? {
+      Token::RPAREN => self.skip()?,
+      _ => loop {
+        args.push(self.expr()?);
+        match self.token()? {
+          Token::RPAREN => break,
+          Token::COMMA => (),
+          tok => return errs(format!("Unexpected token {:?} in function call", tok)),
+        };
+      },
+    };
+    Ok(args)
+  }
+  
   fn typ(&mut self) -> Result<ast::Typ> {
     match self.peek()? { 
       Token::LPAREN => { // Tuple
@@ -322,15 +324,37 @@ impl<'a> Parser<'a> {
     self.munch(Token::RPAREN)?;
     Ok(expr)
   }
+}
 
   // --------------------------------  PRECEDENCE  --------------------------------
+  macro_rules! expr_tier {
+    ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
+        fn $name(&mut self) -> Result<ast::Expr> {
+          // println!("Push {}",stringify!($name)); 
+          let mut expr = self.$next()?;
+          loop {
+            let op = match self.peek() {
+              $(Ok(&$tok) => {
+                self.skip()?;
+                $op
+              }),+
+              _ => break,
+            };
+            let rhs = self.$next()?;
+            expr = ast::Expr::BinaryOp { op: op, lhs: box expr,rhs: box rhs };
+          }
+          // println!("Pop {}",stringify!($name)); 
+          Ok(expr)
+        }
+      };
+  }
 
+  impl<'a> Parser<'a> {
   // Logical Or
   expr_tier!(lor_expr, land_expr, Token::LOR = ast::BinOp::Or);
 
   // Logical And
   expr_tier!(land_expr, eq_expr, Token::LAND = ast::BinOp::And);
-
 
   // Eq / Neq
   expr_tier!(
@@ -392,6 +416,14 @@ impl<'a> Parser<'a> {
     }
   }
 
+  fn unop(&mut self) -> Result<ast::UnOp> {
+    match self.token()? {
+      Token::MINUS => Ok(ast::UnOp::Sub),
+      Token::LNOT => Ok(ast::UnOp::Not),
+      tok => errs(format!("Could not match token {:?} in unop", tok)),
+    }
+  }
+
   fn unary_expr(&mut self) -> Result<ast::Expr> {
     use ast::Expr::*;
     match self.peek() {
@@ -440,24 +472,6 @@ impl<'a> Parser<'a> {
     Ok(ast::Expr::If { condition, t1, t2 })
   }
 
-  // Parse an argument list to a function call
-  fn call_list(&mut self) -> Result<Vec<ast::Expr>> {
-    self.munch(Token::LPAREN)?;
-    let mut args = Vec::new();
-    match self.peek()? {
-      Token::RPAREN => self.skip()?,
-      _ => loop {
-        args.push(self.expr()?);
-        match self.token()? {
-          Token::RPAREN => break,
-          Token::COMMA => (),
-          tok => return errs(format!("Unexpected token {:?} in function call", tok)),
-        };
-      },
-    };
-    Ok(args)
-  }
-
   fn primary_expr(&mut self) -> Result<ast::Expr> {
     use Token::*;
     // We don't want to skip here because of the other
@@ -486,10 +500,8 @@ impl<'a> Parser<'a> {
             name: s,
             fields: self.literal_fields()? 
           }), 
-          _ => {
-            // println!("Parsed variable: {}",s);
-            Ok(ast::Expr::Variable(s))
-          }
+          _ => Ok(ast::Expr::Variable(s))
+          
         }
       }
       IF => self.cond_expr(),
@@ -497,14 +509,6 @@ impl<'a> Parser<'a> {
       LBRACE => self.block_expr(),
       MINUS | LNOT => self.unary_expr(),
       tok => errs(format!("Could not match {:?} in primary_expr", tok)),
-    }
-  }
-
-  fn unop(&mut self) -> Result<ast::UnOp> {
-    match self.token()? {
-      Token::MINUS => Ok(ast::UnOp::Sub),
-      Token::LNOT => Ok(ast::UnOp::Not),
-      tok => errs(format!("Could not match token {:?} in unop", tok)),
     }
   }
 
