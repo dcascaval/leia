@@ -123,6 +123,10 @@ pub enum Expr {
     expr: Box<Expr>,
     target: Typ
   },
+  WithExpression { 
+    expr: Box<Expr>, 
+    fields: Vec<(Var,Expr)>,
+  },
   BinaryOp { 
     op: BinOp,
     lhs: Box<Expr>,
@@ -133,7 +137,10 @@ pub enum Expr {
     rhs: Box<Expr>
   },
   Variable(Var),
-  FieldAccess(Vec<Var>), // Chain
+  FieldAccess { 
+    expr: Box<Expr>,
+    fields: Vec<Var> // Chain
+  }, 
   Call { 
     function: Var,
     args: Vec<Expr>

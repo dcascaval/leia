@@ -124,7 +124,6 @@ impl<'a> Parser<'a> {
     let name = self.ident()?;
     self.munch(Token::EQUAL)?;
     let typ = self.typ()?;
-    self.munch(Token::SEMICOLON)?;
     self.types.insert(name.clone(), typ.clone());
     Ok(ast::Gstmt::Typedef { typ, name })
   }
@@ -167,13 +166,10 @@ impl<'a> Parser<'a> {
     let typ = self.typ()?;
     Ok((id,typ))
   }
-
   
-  fn literal_fields(&mut self) -> Result<Vec<(String,ast::Expr)>> { 
+  fn literal_fields(&mut self) -> Result<Vec<(String,ast::Expr)>> {
+    self.munch(Token::LBRACE)?; 
     let mut fields = Vec::new();
-    if let Token::RBRACE = self.peek()? { 
-      return Ok(fields)
-    };
     loop { 
       match self.peek()? { 
         Token::Ident(_) => {
@@ -182,11 +178,12 @@ impl<'a> Parser<'a> {
           let expr = self.expr()?; 
           fields.push((id,expr));
           match self.peek()? { 
-            Token::RBRACE => { self.skip()?; return Ok(fields) },
-            Token::SEMICOLON => self.skip()?,
+            Token::RBRACE => (),
+            Token::COMMA | Token::SEMICOLON => self.skip()?,
             tok => return errs(format!("Expected closing brace or semicolon, got {:?}", tok))
           }
         },
+        Token::RBRACE => { self.skip()?; return Ok(fields) },
         tok => return errs(format!("Expected name of struct field in literal, got {:?}", tok))
       }
     }
@@ -269,16 +266,7 @@ impl<'a> Parser<'a> {
 
   fn ident(&mut self) -> Result<ast::Var> {
     match self.token()? {
-      Token::Ident(string) => {
-        if !self.types.contains_key(&string) {
-          Ok(string)
-        } else {
-          errs(format!(
-            "{:?} is defined as a type, and cannot be an ident.",
-            string
-          ))
-        }
-      }
+      Token::Ident(string) => Ok(string),
       tok => errs(format!("Could not match {:?} as ident", tok)),
     }
   }
@@ -381,12 +369,24 @@ impl<'a> Parser<'a> {
   // argument of the type on the right hand side. (We might eventually want to make
   // it bind even tighter than that.)
   fn as_expr(&mut self) -> Result<ast::Expr> { 
-    let expr = self.unary_expr()?;
+    let expr = self.with_expr()?;
     match self.peek() { 
       Ok(Token::AS) => { 
         self.skip()?;
         let target = self.typ()?; 
         Ok(ast::Expr::AsExpression { expr: box expr, target })
+      }
+      _ => Ok(expr)
+    }
+  }
+
+  fn with_expr(&mut self) -> Result<ast::Expr> { 
+    let expr = self.unary_expr()?; 
+    match self.peek() { 
+      Ok(Token::WITH) => { 
+        self.skip()?; 
+        let fields = self.literal_fields()?; 
+        Ok(ast::Expr::WithExpression { expr: box expr, fields })
       }
       _ => Ok(expr)
     }
@@ -398,16 +398,35 @@ impl<'a> Parser<'a> {
       Ok(Token::MINUS) | Ok(Token::LNOT) => {
         let op = self.unop()?;
         // println!("Push unary_expr");
-        let expr = self.primary_expr()?;
+        let expr = self.access_expr()?;
         // println!("Pop unary_expr"); 
         Ok(UnaryOp{ op, rhs: box expr })
       }
       _ => {
         // println!("Push unary_expr");
-        let result = self.primary_expr();
+        let result = self.access_expr();
         // println!("Pop unary_expr"); 
         result
       }
+    }
+  }
+
+  fn access_expr(&mut self) -> Result<ast::Expr> { 
+    let expr = self.primary_expr()?;
+    let mut results = Vec::new();
+    loop {
+      match self.peek() {
+        Ok(Token::DOT) => {
+          self.skip()?;
+        }
+        _ => break,
+      };
+      results.push(self.ident()?);
+    }
+    if results.is_empty() { 
+      Ok(expr)
+    } else {
+      Ok(ast::Expr::FieldAccess { expr: box expr, fields: results })
     }
   }
 
@@ -451,6 +470,10 @@ impl<'a> Parser<'a> {
       &Boolean(b) => {
         self.skip()?;
         Ok(ast::Expr::BoolLiteral(b))
+      }
+      &Float(f) => { 
+        self.skip()?; 
+        Ok(ast::Expr::FloatLiteral(f))
       }
       Ident(_) => {
         let s = self.ident()?;
