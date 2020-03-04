@@ -13,6 +13,7 @@ pub enum Typ {
   Struct (Vec<(String,Typ)>),
   Enum (Vec<(String,Typ)>),
   Tuple (Vec<Typ>),
+  Function (Box<Typ>,Box<Typ>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

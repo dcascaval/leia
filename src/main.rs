@@ -9,6 +9,7 @@ mod error;
 mod lex;
 mod parse;
 mod ast;
+mod tc;
 
 use std::fs;
 use std::fs::OpenOptions;
@@ -75,9 +76,9 @@ fn main() {
         println!("{:?}", program); 
       }
 
-      if cfg.tc_only {
-        println!("Pass typecheck.");
-        return 0;
+      match tc::typecheck(&program) { 
+        Ok(_) => println!("Pass typecheck."),
+        Err(m) => eprintln!("{}",m)
       }
 
       0
