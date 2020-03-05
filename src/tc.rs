@@ -18,6 +18,29 @@ use crate::ast;
 use crate::error::*;
 use std::collections::HashMap;
 
+impl ast::Typ { 
+  fn field(&self,name : &ast::Var) -> Result<ast::Typ> {
+    match self {        
+      ast::Typ::Struct(ref typed_fields) => { 
+        for (field,typ) in typed_fields.iter() { 
+          if field == name { 
+            return Ok(typ.clone())
+          }
+        }
+        err("no field name on type")
+      },
+      // Attempt to parse the "field" as a tuple index
+      ast::Typ::Tuple(ref types) => { 
+        match name.parse::<usize>() {
+          Ok(i) if i < types.len() => Ok(types[i].clone()),
+          _ => err("name not a tuple field"),
+        }
+      }
+      _ => err("no fields on non-composite type")
+    }
+  }
+}
+
 struct Context<'src,'fun> {
   functions : &'fun HashMap<&'src str,ast::Typ>, 
   types : &'fun HashMap<&'src str,&'src ast::Typ>,
@@ -35,11 +58,88 @@ impl<'src,'fun> Context<'src,'fun> {
     self.variables.insert(var,typ);
   }
 
-  fn tc_expr(&self, _expr: &ast::Expr) -> Result<ast::Typ> { 
-    unimplemented!()
+  fn tc_expr(&mut self, expr: &'src ast::Expr) -> Result<ast::Typ> { 
+    use ast::Expr::*;
+    match expr { 
+      // Todo: add variable scoping
+      Block(box expr) => { 
+        self.tc_expr(expr) 
+      }
+      Statements(stmts) => {
+        for stmt in stmts[..stmts.len() - 1].iter() { 
+          self.tc_stmt(stmt)?; 
+        }
+        self.tc_stmt(stmts.last().unwrap())
+      },
+      Variable(v) => {
+        self.typeof_variable(v)
+      },
+      Call { function, args } => { 
+        match self.functions.get(function.as_str()) { 
+          Some(ast::Typ::Function(box typ,box ast::Typ::Tuple(arg_typs))) => { 
+            if args.len() == arg_typs.len() {
+              for (i,arg) in args.iter().enumerate() {
+                let t = self.tc_expr(arg)?; 
+                if t != arg_typs[i] {
+                  return err("type mismatch in function args");
+                }
+              }
+              Ok(typ.clone())
+            } else { 
+              err("wrong number of arguments to cal")
+            }
+          }
+          _ => err("unexpected function type")
+        }
+      }
+      If { condition, t1, t2 } => { 
+        if let ast::Typ::Bool = self.tc_expr(condition)? { 
+          let typ1 = self.tc_expr(t1)?; 
+          let typ2 = self.tc_expr(t2)?; 
+          if typ1 == typ2 { 
+            return Ok(typ1)
+          } else { 
+            return err("type mismatch in condition")
+          }
+        } else { 
+          return err("non-boolean conditional header")
+        }
+      },
+      FieldAccess { expr, fields } => { 
+        let t = self.tc_expr(expr)?; 
+        self.typeof_access(t,fields)
+      }, 
+      WithExpression { expr, fields } => { 
+        let t = self.tc_expr(expr)?; 
+        for (var,field_expr) in fields.iter() { 
+          let e = self.tc_expr(field_expr)?; 
+          let v = self.canonical_type(&t.field(var)?)?;
+          if v != e {
+            return err("mismatch in with-expression");
+          }
+        }
+        Ok(t)
+      },
+      IntLiteral(_) => Ok(ast::Typ::Int),
+      BoolLiteral(_) => Ok(ast::Typ::Bool), 
+      FloatLiteral(_) => Ok(ast::Typ::Float), 
+      StructLiteral { .. } => {
+        // todo: check name of struct is defined
+        // and all fields within it are too
+        unimplemented!()
+      },
+      AsExpression { .. } 
+      | BinaryOp { .. } 
+      | UnaryOp { .. }
+      | EnumLiteral { .. }
+      | TupleLiteral { .. }
+      | Match(_) => { 
+        unimplemented!()
+      } 
+    }
   }
 
-  fn typeof_variable<'a>(&self, var : &'src ast::Var) -> Result<ast::Typ> {
+  fn typeof_variable(&self, var : &'src ast::Var) -> Result<ast::Typ> {
     match self.variables.get(var.as_str()) { 
       Some(e) => Ok(e.clone()),
       None => err("undefined variable")
@@ -58,6 +158,36 @@ impl<'src,'fun> Context<'src,'fun> {
     }
   }
 
+  fn typeof_access(&self, base : ast::Typ, access: &[ast::Var]) -> Result<ast::Typ> { 
+    let mut base_type = self.canonical_type(&base)?; // Not 'Alias(_)'
+    for access_field in access.iter() { 
+      match base_type { 
+        ast::Typ::Struct(ref typed_fields) => { 
+          for (field,typ) in typed_fields.iter() { 
+            if field == access_field { 
+              base_type = self.canonical_type(typ)?; 
+              break;
+            }
+          }
+        }
+        ast::Typ::Tuple(ref types) => { 
+          // Attempt to parse the "field" as a tuple index
+          match access_field.parse::<usize>() {
+            Ok(i) => {
+              if i < types.len() { 
+                base_type = self.canonical_type(&types[i])?; 
+                break;
+              }
+            }, 
+            Err(_) => return err("not a tuple field"),
+          }
+        }, 
+        _ => return err("cant index non-composite type")
+      }
+    }
+    Ok(base_type)
+  }
+
   fn typeof_lvalue(&self, lvalue : &'src ast::LValue) -> Result<ast::Typ> { 
     use ast::*; 
     match lvalue { 
@@ -66,34 +196,8 @@ impl<'src,'fun> Context<'src,'fun> {
         if access.len() < 2 { 
           return err("access isn't an access")
         }
-        let mut base_type = self.typeof_variable(&access[0])?;
-        base_type = self.canonical_type(&base_type)?; // Not 'Alias(_)'
-        for access_field in access[1..].iter() { 
-          match base_type { 
-            Typ::Struct(ref typed_fields) => { 
-              for (field,typ) in typed_fields.iter() { 
-                if field == access_field { 
-                  base_type = self.canonical_type(typ)?; 
-                  break;
-                }
-              }
-            }
-            Typ::Tuple(ref types) => { 
-              // Attempt to parse the "field" as a tuple index
-              match access_field.parse::<usize>() {
-                Ok(i) => {
-                  if i < types.len() { 
-                    base_type = self.canonical_type(&types[i])?; 
-                    break;
-                  }
-                }, 
-                Err(_) => return err("not a tuple field"),
-              }
-            }, 
-            _ => return err("cant index non-composite type")
-          }
-        }
-        Ok(base_type)
+        let base_type = self.typeof_variable(&access[0])?;
+        self.typeof_access(base_type,&access[1..])
       }
     }
   }
@@ -118,7 +222,7 @@ impl<'src,'fun> Context<'src,'fun> {
     }
   }
   
-  fn tc_function(&mut self, return_type : &ast::Typ, body : &ast::Expr) -> Result<()> {
+  fn tc_function(&mut self, return_type : &ast::Typ, body : &'src ast::Expr) -> Result<()> {
     match self.tc_expr(body) { 
       Ok(typ) => { 
         if &typ == return_type { Ok(()) } 
