@@ -1,17 +1,5 @@
 use std::env;
 
-pub enum EmitTarget {
-  Abstract,
-  X86,
-  LLVM,
-}
-
-pub enum OptLevel {
-  O0,
-  O1,
-  O2,
-}
-
 pub struct Config {
   pub verbose: bool,
   pub tc_only: bool,

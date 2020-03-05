@@ -2,20 +2,18 @@
 //! Parser
 /// Hand-rolled, recursive-descent approach using a variant of top-down
 /// operator precedence. This should directly encode the grammar in `docs/grammar.txt`
-
-// Todo: 
-// Add positional information in the form of source code spans. 
-// Here too, we should add error reasonable error messages, as well as attempted 
-// recovery (see `src/lex.rs`). We'll probably implement this as some sort of 
+// Todo:
+// Add positional information in the form of source code spans.
+// Here too, we should add error reasonable error messages, as well as attempted
+// recovery (see `src/lex.rs`). We'll probably implement this as some sort of
 // error context stack. It's as yet unclear how we'll get to the end of the displayed
 // expression: should we go to the next line? Should we find the position of the next
-// delimiting symbol in source (up to a limit) and go there? 
+// delimiting symbol in source (up to a limit) and go there?
 // How should we display the error w/r/t the token at which it arose?
 
-// We'll want to fuzz the parser to make sure it can't crash on any valid programs, 
-// and that it doesn't accidentally drop any parsed expressions because it hit 
+// We'll want to fuzz the parser to make sure it can't crash on any valid programs,
+// and that it doesn't accidentally drop any parsed expressions because it hit
 // some error.
-
 use crate::ast;
 use crate::error::{errs, Error, Result};
 use crate::lex::{Lexer, Token};
@@ -32,12 +30,8 @@ impl<'a> Parser<'a> {
   }
 
   pub fn new(lexer: Lexer<'a>) -> Self {
-    Parser {
-      lexer,
-      next: None,
-    }
+    Parser { lexer, next: None }
   }
-
 
   // --------------------------------  HELPERS --------------------------------
 
@@ -52,7 +46,7 @@ impl<'a> Parser<'a> {
 
   fn peek(&mut self) -> result::Result<&Token, &Error> {
     if self.next.is_none() {
-      let tok = self.lexer.token(); 
+      let tok = self.lexer.token();
       // println!("{:?}",tok);
       self.next = Some(tok);
     }
@@ -74,7 +68,7 @@ impl<'a> Parser<'a> {
   }
 
   // --------------------------------  GRAMMAR --------------------------------
-  
+
   fn program(&mut self) -> Result<ast::Program> {
     let mut program = Vec::new();
     loop {
@@ -92,10 +86,10 @@ impl<'a> Parser<'a> {
   }
 
   fn gstmt(&mut self) -> Result<ast::Gstmt> {
-    match self.token()? { 
+    match self.token()? {
       Token::TYPE => self.typedef(),
       Token::FUNCTION => self.fun_defn(),
-      tok => errs(format!("Unknown global token: {:?}", tok))
+      tok => errs(format!("Unknown global token: {:?}", tok)),
     }
   }
 
@@ -112,63 +106,84 @@ impl<'a> Parser<'a> {
     Ok(ast::Gstmt::Typedef { typ, name })
   }
 
-  fn arg_list(&mut self) -> Result<ast::Args> { 
-    self.munch(Token::LPAREN)?; 
-    let mut result = Vec::new(); 
-    if let Token::RPAREN = self.peek()?  {
-      self.skip()?; 
+  fn arg_list(&mut self) -> Result<ast::Args> {
+    self.munch(Token::LPAREN)?;
+    let mut result = Vec::new();
+    if let Token::RPAREN = self.peek()? {
+      self.skip()?;
       return Ok(result);
     }
-    loop { 
+    loop {
       match self.token()? {
-        Token::Ident(ident) => { 
-          self.munch(Token::COLON)?; 
-          let typ = self.typ()?; 
-          result.push((typ,ident));
+        Token::Ident(ident) => {
+          self.munch(Token::COLON)?;
+          let typ = self.typ()?;
+          result.push((typ, ident));
           match self.peek()? {
-            Token::RPAREN => { self.skip()?; return Ok(result) },
+            Token::RPAREN => {
+              self.skip()?;
+              return Ok(result);
+            }
             Token::COMMA => self.skip()?,
-            tok => return errs(format!("Unknown token {:?} in argument list",tok))
+            tok => return errs(format!("Unknown token {:?} in argument list", tok)),
           }
-        },
-        tok => return errs(format!("Unknown token {:?} in argument list",tok))
+        }
+        tok => return errs(format!("Unknown token {:?} in argument list", tok)),
       }
     }
   }
 
   fn fun_defn(&mut self) -> Result<ast::Gstmt> {
     let name = self.ident()?;
-    let args = self.arg_list()?; 
-    let typ  = self.typ()?; 
-    let body = self.expr()?; 
-    Ok(ast::Gstmt::Function { typ, name, args, body })
+    let args = self.arg_list()?;
+    let typ = self.typ()?;
+    let body = self.expr()?;
+    Ok(ast::Gstmt::Function {
+      typ,
+      name,
+      args,
+      body,
+    })
   }
 
-  fn field(&mut self) -> Result<(String,ast::Typ)> { 
-    let id = self.ident()?; 
-    self.munch(Token::COLON)?; 
+  fn field(&mut self) -> Result<(String, ast::Typ)> {
+    let id = self.ident()?;
+    self.munch(Token::COLON)?;
     let typ = self.typ()?;
-    Ok((id,typ))
+    Ok((id, typ))
   }
-  
-  fn literal_fields(&mut self) -> Result<Vec<(String,ast::Expr)>> {
-    self.munch(Token::LBRACE)?; 
+
+  fn literal_fields(&mut self) -> Result<Vec<(String, ast::Expr)>> {
+    self.munch(Token::LBRACE)?;
     let mut fields = Vec::new();
-    loop { 
-      match self.peek()? { 
+    loop {
+      match self.peek()? {
         Token::Ident(_) => {
-          let id = self.ident()?; 
-          self.munch(Token::COLON)?; 
-          let expr = self.expr()?; 
-          fields.push((id,expr));
-          match self.peek()? { 
+          let id = self.ident()?;
+          self.munch(Token::COLON)?;
+          let expr = self.expr()?;
+          fields.push((id, expr));
+          match self.peek()? {
             Token::RBRACE => (),
             Token::COMMA | Token::SEMICOLON => self.skip()?,
-            tok => return errs(format!("Expected closing brace or semicolon, got {:?}", tok))
+            tok => {
+              return errs(format!(
+                "Expected closing brace or semicolon, got {:?}",
+                tok
+              ))
+            }
           }
-        },
-        Token::RBRACE => { self.skip()?; return Ok(fields) },
-        tok => return errs(format!("Expected name of struct field in literal, got {:?}", tok))
+        }
+        Token::RBRACE => {
+          self.skip()?;
+          return Ok(fields);
+        }
+        tok => {
+          return errs(format!(
+            "Expected name of struct field in literal, got {:?}",
+            tok
+          ))
+        }
       }
     }
   }
@@ -190,79 +205,90 @@ impl<'a> Parser<'a> {
     };
     Ok(args)
   }
-  
+
   fn typ(&mut self) -> Result<ast::Typ> {
-    match self.peek()? { 
-      Token::LPAREN => { // Tuple
-        self.skip()?; 
+    match self.peek()? {
+      Token::LPAREN => {
+        // Tuple
+        self.skip()?;
         let mut typs = Vec::new();
         if let Token::RPAREN = self.peek()? {
-          self.skip()?; 
-          return Ok(ast::Typ::Tuple(typs)) 
+          self.skip()?;
+          return Ok(ast::Typ::Tuple(typs));
         }
-        loop { 
+        loop {
           typs.push(self.typ()?);
-          match self.token()? { 
+          match self.token()? {
             Token::COMMA => (),
             Token::RPAREN => return Ok(ast::Typ::Tuple(typs)),
-            tok => return errs(format!("Expected comma or closing paren, got {:?}",tok)),
+            tok => return errs(format!("Expected comma or closing paren, got {:?}", tok)),
           }
         }
-      },
-      Token::LBRACE => { // Anonymous struct
-        self.skip()?; 
-        let mut fields = Vec::new(); 
-        if let Token::RBRACE = self.peek()? { 
-          self.skip()?; 
-          return Ok(ast::Typ::Struct(fields))
+      }
+      Token::LBRACE => {
+        // Anonymous struct
+        self.skip()?;
+        let mut fields = Vec::new();
+        if let Token::RBRACE = self.peek()? {
+          self.skip()?;
+          return Ok(ast::Typ::Struct(fields));
         }
-        loop { 
-          fields.push(self.field()?); 
-          match self.token()? { 
-            Token::COMMA => (), 
+        loop {
+          fields.push(self.field()?);
+          match self.token()? {
+            Token::COMMA => (),
             Token::RBRACE => return Ok(ast::Typ::Struct(fields)),
-            tok => return errs(format!("Expected comma or closing brace, got {:?}",tok))
+            tok => return errs(format!("Expected comma or closing brace, got {:?}", tok)),
           }
         }
-      },
-      // Composite types work as follows: 
+      }
+      // Composite types work as follows:
       // First, we parse a 'type'. Then, all of the following
       // type keywords after it are modifiers. There are not
       // currently any pointer types.
       Token::Ident(_) => {
-        let mut id = self.ident()?; 
-        match id.as_str() { 
+        let mut id = self.ident()?;
+        match id.as_str() {
           "int" => return Ok(ast::Typ::Int),
-          "bool" => return Ok(ast::Typ::Bool), 
+          "bool" => return Ok(ast::Typ::Bool),
           "float" => return Ok(ast::Typ::Float),
           _ => (),
         };
-        let mut next = match self.peek()? { 
-          Token::COLON => { // enum field
+        let mut next = match self.peek()? {
+          Token::COLON => {
+            // enum field
             let mut fields = Vec::new();
             loop {
-              self.munch(Token::COLON)?; 
+              self.munch(Token::COLON)?;
               let t = self.typ()?;
-              fields.push((id,t));
-              match self.peek()? { 
-                Token::PIPE => { self.skip()?; id = self.ident()?;  }
-                _ => { break ast::Typ::Enum(fields) } 
+              fields.push((id, t));
+              match self.peek()? {
+                Token::PIPE => {
+                  self.skip()?;
+                  id = self.ident()?;
+                }
+                _ => break ast::Typ::Enum(fields),
               }
             }
-          },
-          _ => ast::Typ::Alias(id)
-        }; 
-        loop { 
-          match self.peek()? { 
-            Token::Ident(_) => { 
-              let id = self.ident()?; 
-              next = ast::Typ::Composite(box next,id) 
+          }
+          _ => ast::Typ::Alias(id),
+        };
+        loop {
+          match self.peek()? {
+            Token::Ident(_) => {
+              let id = self.ident()?;
+              next = ast::Typ::Composite(box next, id)
             }
-            _ => return Ok(next)
+            _ => return Ok(next),
           }
         }
-      }, 
-      tok => return errs(format!("Expected opening paren, brace, or identifier, got {:?}",tok))
+      }
+      tok => {
+        return errs(format!(
+          "Expected opening paren, brace, or identifier, got {:?}",
+          tok
+        ))
+      }
     }
   }
 
@@ -277,43 +303,41 @@ impl<'a> Parser<'a> {
     self.lor_expr()
   }
 
-  fn stmt(&mut self) -> Result<ast::Stmt> { 
-    match self.peek()? { 
+  fn stmt(&mut self) -> Result<ast::Stmt> {
+    match self.peek()? {
       Token::BREAK => Ok(ast::Stmt::BREAK),
       Token::LET => self.let_stmt(),
-      Token::RETURN => self.ret_stmt(), 
+      Token::RETURN => self.ret_stmt(),
       Token::LOOP => self.loop_stmt(), // These should be exprs, but aren't yet
-      _ => Ok(ast::Stmt::Expr(self.expr()?)) 
+      _ => Ok(ast::Stmt::Expr(self.expr()?)),
     }
   }
 
-  fn loop_stmt(&mut self) -> Result<ast::Stmt> { 
-    self.munch(Token::LOOP)?; 
+  fn loop_stmt(&mut self) -> Result<ast::Stmt> {
+    self.munch(Token::LOOP)?;
     Ok(ast::Stmt::Loop(self.expr()?))
   }
 
   // Todo: patterns
   // todo: mut
-  fn let_stmt(&mut self) -> Result<ast::Stmt> { 
-    self.munch(Token::LET)?; 
-    let name = self.ident()?;  
-    self.munch(Token::EQUAL)?; 
-    let value = self.expr()?; 
-    Ok(ast::Stmt::Let{ name, value})
+  fn let_stmt(&mut self) -> Result<ast::Stmt> {
+    self.munch(Token::LET)?;
+    let name = self.ident()?;
+    self.munch(Token::EQUAL)?;
+    let value = self.expr()?;
+    Ok(ast::Stmt::Let { name, value })
   }
 
-  fn block_expr(&mut self) -> Result<ast::Expr> { 
-    self.munch(Token::LBRACE)?; 
-    let mut stmts = Vec::new(); 
-    loop { 
-      let expr = self.stmt()?; 
+  fn block_expr(&mut self) -> Result<ast::Expr> {
+    self.munch(Token::LBRACE)?;
+    let mut stmts = Vec::new();
+    loop {
+      let expr = self.stmt()?;
       stmts.push(expr);
-      match self.token()? { 
+      match self.token()? {
         Token::SEMICOLON => (),
-        Token::RBRACE => { 
-          return Ok(ast::Expr::Statements(stmts))
-        }
-        tok => return errs(format!("Unexpected token {:?} after expression", tok))
+        Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+        tok => return errs(format!("Unexpected token {:?} after expression", tok)),
       };
     }
   }
@@ -326,11 +350,11 @@ impl<'a> Parser<'a> {
   }
 }
 
-  // --------------------------------  PRECEDENCE  --------------------------------
-  macro_rules! expr_tier {
+// --------------------------------  PRECEDENCE  --------------------------------
+macro_rules! expr_tier {
     ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
         fn $name(&mut self) -> Result<ast::Expr> {
-          // println!("Push {}",stringify!($name)); 
+          // println!("Push {}",stringify!($name));
           let mut expr = self.$next()?;
           loop {
             let op = match self.peek() {
@@ -343,13 +367,13 @@ impl<'a> Parser<'a> {
             let rhs = self.$next()?;
             expr = ast::Expr::BinaryOp { op: op, lhs: box expr,rhs: box rhs };
           }
-          // println!("Pop {}",stringify!($name)); 
+          // println!("Pop {}",stringify!($name));
           Ok(expr)
         }
       };
   }
 
-  impl<'a> Parser<'a> {
+impl<'a> Parser<'a> {
   // Logical Or
   expr_tier!(lor_expr, land_expr, Token::LOR = ast::BinOp::Or);
 
@@ -388,31 +412,37 @@ impl<'a> Parser<'a> {
     Token::MOD = ast::BinOp::Mod
   );
 
-  // Binds tighter than any other expression except a unary one -- 
+  // Binds tighter than any other expression except a unary one --
   // because it basically _is_ a right-unary one, with the additional
   // argument of the type on the right hand side. (We might eventually want to make
   // it bind even tighter than that.)
-  fn as_expr(&mut self) -> Result<ast::Expr> { 
+  fn as_expr(&mut self) -> Result<ast::Expr> {
     let expr = self.with_expr()?;
-    match self.peek() { 
-      Ok(Token::AS) => { 
+    match self.peek() {
+      Ok(Token::AS) => {
         self.skip()?;
-        let target = self.typ()?; 
-        Ok(ast::Expr::AsExpression { expr: box expr, target })
+        let target = self.typ()?;
+        Ok(ast::Expr::AsExpression {
+          expr: box expr,
+          target,
+        })
       }
-      _ => Ok(expr)
+      _ => Ok(expr),
     }
   }
 
-  fn with_expr(&mut self) -> Result<ast::Expr> { 
-    let expr = self.unary_expr()?; 
-    match self.peek() { 
-      Ok(Token::WITH) => { 
-        self.skip()?; 
-        let fields = self.literal_fields()?; 
-        Ok(ast::Expr::WithExpression { expr: box expr, fields })
+  fn with_expr(&mut self) -> Result<ast::Expr> {
+    let expr = self.unary_expr()?;
+    match self.peek() {
+      Ok(Token::WITH) => {
+        self.skip()?;
+        let fields = self.literal_fields()?;
+        Ok(ast::Expr::WithExpression {
+          expr: box expr,
+          fields,
+        })
       }
-      _ => Ok(expr)
+      _ => Ok(expr),
     }
   }
 
@@ -431,19 +461,19 @@ impl<'a> Parser<'a> {
         let op = self.unop()?;
         // println!("Push unary_expr");
         let expr = self.access_expr()?;
-        // println!("Pop unary_expr"); 
-        Ok(UnaryOp{ op, rhs: box expr })
+        // println!("Pop unary_expr");
+        Ok(UnaryOp { op, rhs: box expr })
       }
       _ => {
         // println!("Push unary_expr");
         let result = self.access_expr();
-        // println!("Pop unary_expr"); 
+        // println!("Pop unary_expr");
         result
       }
     }
   }
 
-  fn access_expr(&mut self) -> Result<ast::Expr> { 
+  fn access_expr(&mut self) -> Result<ast::Expr> {
     let expr = self.primary_expr()?;
     let mut results = Vec::new();
     loop {
@@ -455,19 +485,22 @@ impl<'a> Parser<'a> {
       };
       results.push(self.ident()?);
     }
-    if results.is_empty() { 
+    if results.is_empty() {
       Ok(expr)
     } else {
-      Ok(ast::Expr::FieldAccess { expr: box expr, fields: results })
+      Ok(ast::Expr::FieldAccess {
+        expr: box expr,
+        fields: results,
+      })
     }
   }
 
-  fn cond_expr(&mut self) -> Result<ast::Expr> { 
-    self.munch(Token::IF)?; 
-    let condition = box self.expr()?; 
-    self.munch(Token::THEN)?; 
-    let t1 = box self.expr()?; 
-    self.munch(Token::ELSE)?; 
+  fn cond_expr(&mut self) -> Result<ast::Expr> {
+    self.munch(Token::IF)?;
+    let condition = box self.expr()?;
+    self.munch(Token::THEN)?;
+    let t1 = box self.expr()?;
+    self.munch(Token::ELSE)?;
     let t2 = box self.expr()?;
     Ok(ast::Expr::If { condition, t1, t2 })
   }
@@ -485,23 +518,22 @@ impl<'a> Parser<'a> {
         self.skip()?;
         Ok(ast::Expr::BoolLiteral(b))
       }
-      &Float(f) => { 
-        self.skip()?; 
+      &Float(f) => {
+        self.skip()?;
         Ok(ast::Expr::FloatLiteral(f))
       }
       Ident(_) => {
         let s = self.ident()?;
         match self.peek()? {
-          Token::LPAREN => Ok(ast::Expr::Call { 
-            function: s, 
-            args: self.call_list()?
+          Token::LPAREN => Ok(ast::Expr::Call {
+            function: s,
+            args: self.call_list()?,
           }),
-          Token::LBRACE => Ok(ast::Expr::StructLiteral { 
+          Token::LBRACE => Ok(ast::Expr::StructLiteral {
             name: s,
-            fields: self.literal_fields()? 
-          }), 
-          _ => Ok(ast::Expr::Variable(s))
-          
+            fields: self.literal_fields()?,
+          }),
+          _ => Ok(ast::Expr::Variable(s)),
         }
       }
       IF => self.cond_expr(),
@@ -511,6 +543,4 @@ impl<'a> Parser<'a> {
       tok => errs(format!("Could not match {:?} in primary_expr", tok)),
     }
   }
-
 }
-

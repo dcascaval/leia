@@ -2,13 +2,13 @@
 #![feature(box_patterns)]
 #![feature(trait_alias)]
 #![warn(clippy::all)]
-#![allow(unknown_lints,dead_code,clippy::map_entry)]
+#![allow(unknown_lints, dead_code, clippy::map_entry)]
 
 mod args;
+mod ast;
 mod error;
 mod lex;
 mod parse;
-mod ast;
 mod tc;
 
 use std::fs;
@@ -23,9 +23,7 @@ fn reader(name: &str) -> std::io::BufReader<std::fs::File> {
 }
 
 /// Take a filename and parse it into an AST!
-fn make_program(
-  filename: &str,
-) -> std::result::Result<ast::Program, error::Error> {
+fn make_program(filename: &str) -> std::result::Result<ast::Program, error::Error> {
   let mut file = reader(filename);
   file.fill_buf()?;
   let buf = String::from_utf8_lossy(file.buffer());
@@ -39,7 +37,7 @@ macro_rules! time {
     let t1 = time::SystemTime::now();
     let result = $x;
     if $config.verbose {
-      println!("{} [{}us]",$name,t1.elapsed().unwrap().as_micros())
+      println!("{} [{}us]", $name, t1.elapsed().unwrap().as_micros())
     }
     result
   }};
@@ -61,24 +59,26 @@ fn write_line(str: String) {
 fn main() {
   let cfg = args::parse_args();
 
-
   let child = thread::Builder::new()
     .stack_size(64 * 1024 * 1024)
     .spawn(move || {
       let filename = cfg.file.clone();
-      let program = time!(cfg,"Parse",make_program(&filename));
+      let program = time!(cfg, "Parse", make_program(&filename));
       let program = match program {
         Ok(prog) => prog,
-        Err(e) => { eprintln!("{}", e); return 1 } // Parse failed!
+        Err(e) => {
+          eprintln!("{}", e);
+          return 1;
+        } // Parse failed!
       };
 
-      if cfg.dump_ast { 
-        println!("{:?}", program); 
+      if cfg.dump_ast {
+        println!("{:?}", program);
       }
 
-      match tc::typecheck(&program) { 
+      match tc::typecheck(&program) {
         Ok(_) => println!("Pass typecheck."),
-        Err(m) => eprintln!("{}",m)
+        Err(m) => eprintln!("{}", m),
       }
 
       0

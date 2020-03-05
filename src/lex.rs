@@ -2,39 +2,37 @@
 //! Lexer
 /// Supports UTF-8 encoded files, and will ignore any characters that aren't, though the
 /// lexer will fail to match any unidentified characters.
-/// 
-/// Uses a recursive matching on a byte stream rather than directly attempting 
-/// regular expressions. This allows us to make the control flow a little clearer 
-/// and define custom error handling and recovery. 
-
-// Todo: 
+///
+/// Uses a recursive matching on a byte stream rather than directly attempting
+/// regular expressions. This allows us to make the control flow a little clearer
+/// and define custom error handling and recovery.
+// Todo:
 // Add positional information
-    // Line, column.
-    // This will aid the parser in generating spans.
+// Line, column.
+// This will aid the parser in generating spans.
 
 // Add reasonable-looking lexer errors, and handle them correctly.
-    // Failed to parse number, unrecognized symbol, things like that.
+// Failed to parse number, unrecognized symbol, things like that.
 
 // Add attempted recovery.
-    // This follows the general principle that if a token fails to lex, 
-    // that's fine, and we'll insert an 'INVALID' token in the stream.
-    // The parser will do one of two things: 
-    // - Attempt to skip it (inserting INVALID) and parse the rest of the expression.
-    //   This is valid when we are parsing some large expression that we know the overall
-    //   structure of and can ignore a component. This works particularly well in constructs
-    //   with 'separators' (e.g. semicolons, pipes, commas).
-    // 
-    // - Treat the current parse scope as invalid and return an INVALID ast node. 
-    //   This is the path when we don't know what we're parsing (i.e looking for a new statement
-    //   beginning) and the results are completely invalidated. Here we usually jump to the next 
-    //  'delimiter' (e.g. brace, parens, etc.) such that it matches what we've parsed so far.
-    //   If this horrendously fails, it likely means the user has mismatched delimiters in some
-    //   unrecoverable way, and we will attempt to error accordingly.
-
+// This follows the general principle that if a token fails to lex,
+// that's fine, and we'll insert an 'INVALID' token in the stream.
+// The parser will do one of two things:
+// - Attempt to skip it (inserting INVALID) and parse the rest of the expression.
+//   This is valid when we are parsing some large expression that we know the overall
+//   structure of and can ignore a component. This works particularly well in constructs
+//   with 'separators' (e.g. semicolons, pipes, commas).
+//
+// - Treat the current parse scope as invalid and return an INVALID ast node.
+//   This is the path when we don't know what we're parsing (i.e looking for a new statement
+//   beginning) and the results are completely invalidated. Here we usually jump to the next
+//  'delimiter' (e.g. brace, parens, etc.) such that it matches what we've parsed so far.
+//   If this horrendously fails, it likely means the user has mismatched delimiters in some
+//   unrecoverable way, and we will attempt to error accordingly.
 use crate::error::{err, errs, Error, Result};
 
-use std::char;
 use std::borrow::Cow;
+use std::char;
 use std::iter::Peekable;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -85,27 +83,24 @@ pub enum Token {
   RETURN,
   BREAK,
 
-  // Keywords 
+  // Keywords
   FUNCTION,
   TYPE,
-  STRUCT, 
+  STRUCT,
   AS,
-  LET, 
+  LET,
   WITH, // Reserve
 }
 
 pub struct Lexer<'a> {
-  stream: Peekable<std::str::Chars<'a>>
+  stream: Peekable<std::str::Chars<'a>>,
 }
 
 impl<'a> Lexer<'a> {
-
   pub fn new(buf: &'a Cow<str>) -> Self {
-    let chars = buf.chars(); 
+    let chars = buf.chars();
     let peek = chars.peekable();
-    Lexer {
-      stream: peek
-    }
+    Lexer { stream: peek }
   }
 
   fn skip(&mut self) {
@@ -200,7 +195,7 @@ impl<'a> Lexer<'a> {
     }
   }
 
-  fn number(&mut self) -> Result<Token> { 
+  fn number(&mut self) -> Result<Token> {
     let buffer = self.take_while(|c| char::is_numeric(c) || c == '_' || c == '.' || c == 'e')?;
     match buffer.parse::<i64>() {
       Ok(n) => Ok(Token::Number(n)),
@@ -218,7 +213,7 @@ impl<'a> Lexer<'a> {
         "break" => Ok(Token::BREAK),
         "if" => Ok(Token::IF),
         "else" => Ok(Token::ELSE),
-        "return" => Ok(Token::RETURN), 
+        "return" => Ok(Token::RETURN),
         "match" => Ok(Token::MATCH),
         "as" => Ok(Token::AS),
         "with" => Ok(Token::WITH),
@@ -256,7 +251,7 @@ impl<'a> Lexer<'a> {
         '!' => self.maybe_equals(Token::LNOT, Token::NOTEQ),
         '<' => self.maybe_equals(Token::LT, Token::LTE),
         '>' => self.maybe_equals(Token::GT, Token::GTE),
-        '|' => self.pipe(), 
+        '|' => self.pipe(),
         '&' => self.amp(),
         '/' => self.slash(),
         '0'..='9' => self.number(),

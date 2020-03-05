@@ -9,12 +9,12 @@ pub enum Typ {
   Int,
   Bool,
   Float,
-  Alias (Var),
-  Composite (Box<Typ>,Var), 
-  Struct (Vec<(String,Typ)>),
-  Enum (Vec<(String,Typ)>),
-  Tuple (Vec<Typ>),
-  Function (Box<Typ>,Box<Typ>),
+  Alias(Var),
+  Composite(Box<Typ>, Var),
+  Struct(Vec<(String, Typ)>),
+  Enum(Vec<(String, Typ)>),
+  Tuple(Vec<Typ>),
+  Function(Box<Typ>, Box<Typ>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,7 +50,7 @@ pub type Args = Vec<(Typ, Var)>;
 #[derive(Debug)]
 pub enum Gstmt {
   Typedef {
-    name: Var, 
+    name: Var,
     typ: Typ,
   },
   Function {
@@ -61,100 +61,82 @@ pub enum Gstmt {
   },
 }
 
-#[derive(Debug,Clone)]
-pub enum LValue { 
-  Ident(Var), 
+#[derive(Debug, Clone)]
+pub enum LValue {
+  Ident(Var),
   Access(Vec<Var>),
 }
 
 // Todo: make as structs?
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
-  Let { 
-    name: Var,
-    value: Expr
-  }, 
-  Assign { 
-    target: LValue, 
-    value: Expr 
-  },
+  Let { name: Var, value: Expr },
+  Assign { target: LValue, value: Expr },
   Expr(Expr),
   Loop(Expr),
   Return(Expr),
-  BREAK
+  BREAK,
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Pattern {
   IntLiteral(i64),
   FloatLiteral(f64),
-  BooleanLiteral(bool), 
-  IntRange { 
-    min: i64,
-    max: i64 
-  }, 
-  FloatRange { 
-    min: f64, 
-    max: f64
-  },
-  Struct(Vec<(Var,Pattern)>), 
-  Enum { 
-    name: Var, 
-    args: Vec<Pattern> 
-  },
+  BooleanLiteral(bool),
+  IntRange { min: i64, max: i64 },
+  FloatRange { min: f64, max: f64 },
+  Struct(Vec<(Var, Pattern)>),
+  Enum { name: Var, args: Vec<Pattern> },
   Variable(Var),
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub enum Expr {
   Block(Box<Expr>),
   Statements(Vec<Stmt>),
   IntLiteral(i64),
-  BoolLiteral(bool), 
+  BoolLiteral(bool),
   FloatLiteral(f64),
-  StructLiteral { 
+  StructLiteral {
     name: Var,
-    fields: Vec<(Var,Expr)>,
+    fields: Vec<(Var, Expr)>,
   },
-  EnumLiteral { // Like a function call!
-    name: Var, 
-    args: Vec<Expr>
+  EnumLiteral {
+    // Like a function call!
+    name: Var,
+    args: Vec<Expr>,
   },
   TupleLiteral(Vec<Expr>),
-  AsExpression { 
+  AsExpression {
     expr: Box<Expr>,
-    target: Typ
+    target: Typ,
   },
-  WithExpression { 
-    expr: Box<Expr>, 
-    fields: Vec<(Var,Expr)>,
+  WithExpression {
+    expr: Box<Expr>,
+    fields: Vec<(Var, Expr)>,
   },
-  BinaryOp { 
+  BinaryOp {
     op: BinOp,
     lhs: Box<Expr>,
-    rhs: Box<Expr>
+    rhs: Box<Expr>,
   },
-  UnaryOp { 
+  UnaryOp {
     op: UnOp,
-    rhs: Box<Expr>
+    rhs: Box<Expr>,
   },
   Variable(Var),
-  FieldAccess { 
+  FieldAccess {
     expr: Box<Expr>,
-    fields: Vec<Var> // Chain
-  }, 
-  Call { 
+    fields: Vec<Var>, // Chain
+  },
+  Call {
     function: Var,
-    args: Vec<Expr>
+    args: Vec<Expr>,
   },
-  If { 
+  If {
     condition: Box<Expr>,
-    t1 : Box<Expr>, 
-    t2 : Box<Expr>
+    t1: Box<Expr>,
+    t2: Box<Expr>,
   },
-  Match(Vec<(Pattern,Stmt)>),
+  Match(Vec<(Pattern, Stmt)>),
 }
-
-
-
-
