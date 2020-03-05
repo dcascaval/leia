@@ -5,6 +5,7 @@ pub type Var = String;
 // Todo: check eq impl
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Typ {
+  Unit,
   Int,
   Bool,
   Float,
