@@ -8,9 +8,6 @@ use std::result;
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// In L1, we only have two types of errors. We distinguish
-/// EOF specifically in order to handle it accordingly. You
-/// may want to extend this struct with more errors (for say, types.)
 #[derive(Debug)]
 pub enum Error {
   Message(String),
