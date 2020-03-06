@@ -19,6 +19,14 @@ use crate::error::*;
 use std::collections::HashMap;
 
 impl ast::Typ {
+  fn integral(&self) -> Result<ast::Typ> {
+    match self {
+      ast::Typ::Int => Ok(ast::Typ::Int),
+      ast::Typ::Float => Ok(ast::Typ::Float),
+      _ => err("non integral"),
+    }
+  }
+
   fn field(&self, name: &ast::Var) -> Result<ast::Typ> {
     match self {
       ast::Typ::Struct(ref typed_fields) => {
@@ -35,6 +43,30 @@ impl ast::Typ {
         _ => err("name not a tuple field"),
       },
       _ => err("no fields on non-composite type"),
+    }
+  }
+}
+
+impl ast::BinOp {
+  fn synth(&self, lhs: &ast::Typ, rhs: &ast::Typ) -> Result<ast::Typ> {
+    use ast::BinOp::*;
+    use ast::Typ::*;
+
+    // Todo: not quite right for mod
+    match (self, lhs, rhs) {
+      (Add | Sub | Mul | Div | Mod, &Int, &Int) => Ok(Int),
+      (Add | Sub | Mul | Div | Mod, &Float, &Float) => Ok(Float),
+      (Lt | Gt | Leq | Geq, &Int, &Int) => Ok(Bool),
+      (Lt | Gt | Leq | Geq, &Float, &Float) => Ok(Bool),
+      (And | Or, &Bool, &Bool) => Ok(Bool),
+      (Eql | Neq, t1, t2) => {
+        if t1 == t2 {
+          Ok(t1.clone())
+        } else {
+          err("non-poly-match-eq")
+        }
+      }
+      _ => err("non-match binop"),
     }
   }
 }

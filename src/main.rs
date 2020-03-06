@@ -1,6 +1,7 @@
 #![feature(box_syntax)]
 #![feature(box_patterns)]
 #![feature(trait_alias)]
+#![feature(or_patterns)]
 #![warn(clippy::all)]
 #![allow(unknown_lints, dead_code, clippy::map_entry)]
 
