@@ -167,10 +167,62 @@ impl<'src, 'fun> Context<'src, 'fun> {
         }
         Ok(t.clone())
       }
-      BinaryOp { .. } => unimplemented!(),
-      UnaryOp { .. } => unimplemented!(),
-      EnumLiteral { .. } => unimplemented!(),
-      TupleLiteral { .. } => unimplemented!(),
+      BinaryOp {
+        op,
+        box lhs,
+        box rhs,
+      } => {
+        let t1 = self.tc_expr(&lhs)?;
+        let t2 = self.tc_expr(&rhs)?;
+        op.synth(&t1, &t2)
+      }
+      UnaryOp { op, box rhs } => {
+        use ast::Typ::*;
+        use ast::UnOp::*;
+        let t1 = self.tc_expr(&rhs)?;
+        match (op, &t1) {
+          (Not, Bool) => Ok(t1),
+          (Sub, Int | Float) => Ok(t1),
+          _ => err("type mismatch unop"),
+        }
+      }
+      TupleLiteral(exprs) => {
+        let mut types = vec![ast::Typ::Unit; exprs.len()];
+        for (i, expr) in exprs.iter().enumerate() {
+          types[i] = self.tc_expr(expr)?;
+        }
+        Ok(ast::Typ::Tuple(types))
+      }
+      EnumLiteral { name, args } => {
+        for (_, typ) in self.types.iter() {
+          if let ast::Typ::Enum(fields) = typ {
+            for (field, field_typ) in fields.iter() {
+              if field == name {
+                if args.len() == 1 {
+                  let t = self.tc_expr(&args[0])?;
+                  if field_typ == &t {
+                    return Ok(t);
+                  } else {
+                    return err("single-field enum mismatch");
+                  }
+                } else {
+                  let mut types = vec![ast::Typ::Unit; args.len()];
+                  for (i, expr) in args.iter().enumerate() {
+                    types[i] = self.tc_expr(expr)?;
+                  }
+                  let result = ast::Typ::Tuple(types);
+                  if field_typ == &result {
+                    return Ok(result);
+                  } else {
+                    return err("multi-field enum mismatch");
+                  }
+                }
+              }
+            }
+          }
+        }
+        err("matching enum not found")
+      }
       Match(_) | AsExpression { .. } => unimplemented!(),
     }
   }
