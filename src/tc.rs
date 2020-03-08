@@ -20,10 +20,19 @@ use std::collections::HashMap;
 
 impl ast::Typ {
   fn integral(&self) -> Result<ast::Typ> {
+    use ast::Typ::*;
     match self {
-      ast::Typ::Int => Ok(ast::Typ::Int),
-      ast::Typ::Float => Ok(ast::Typ::Float),
+      Int => Ok(Int),
+      Float => Ok(Float),
       _ => err("non integral"),
+    }
+  }
+
+  fn primitive(&self) -> bool {
+    use ast::Typ::*;
+    match self {
+      Unit | Int | Float | Bool => true,
+      _ => false,
     }
   }
 
@@ -92,6 +101,38 @@ impl<'src, 'fun> Context<'src, 'fun> {
 
   fn define(&mut self, var: &'src ast::Var, typ: ast::Typ) {
     self.variables.insert(var, typ);
+  }
+
+  fn assignable(&mut self, dest: &ast::Typ, src: &ast::Typ) -> Result<()> {
+    let (dest, src) = (self.canonical_type(dest)?, self.canonical_type(src)?);
+    if dest.primitive() {
+      if src == dest {
+        return Ok(());
+      } else {
+        return err("primitive mismatch");
+      }
+    }
+    use ast::Typ::*;
+    match dest {
+      Struct(dest_fields) => {
+        if let Struct(src_fields) = src {
+          for (df, dt) in dest_fields.iter() {
+            let mut found = false;
+            for (sf, st) in src_fields.iter() {
+              if df == sf {
+                self.assignable(dt, st)?;
+                found = true;
+              }
+            }
+            if !found {
+              return err("field not found");
+            }
+          }
+        }
+      }
+      _ => unimplemented!(),
+    };
+    err("")
   }
 
   fn tc_expr(&mut self, expr: &'src ast::Expr) -> Result<ast::Typ> {
