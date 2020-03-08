@@ -33,8 +33,7 @@ pub fn errs<T>(s: String) -> Result<T> {
 
 impl From<io::Error> for Error {
   fn from(_error: io::Error) -> Self {
-    use std::error::Error;
-    msg(_error.description())
+    msg(_error.to_string().as_str())
   }
 }
 
