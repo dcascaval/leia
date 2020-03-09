@@ -86,6 +86,22 @@ struct Context<'src, 'fun> {
   variables: &'fun mut HashMap<&'src str, ast::Typ>,
 }
 
+// we use this as a macro to get around some pesky lifetime rules
+// that would otherwise be ambiguous - i.e. we want $typ to occasionally
+// be a reference with a different lifetime than the one of 'src, but
+// it can't be known which one this function will return.
+macro_rules! canonical_type {
+  ($ctx : ident, $typ : ident) => {
+    match $typ {
+      ast::Typ::Alias(ref alias) => match $ctx.types.get(alias.as_str()) {
+        Some(&v) => v,
+        None => return err("undefined type alias"),
+      },
+      t => t,
+    }
+  };
+}
+
 impl<'src, 'fun> Context<'src, 'fun> {
   fn new(
     functions: &'fun HashMap<&'src str, ast::Typ>,
@@ -104,7 +120,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
   }
 
   fn assignable(&mut self, dest: &ast::Typ, src: &ast::Typ) -> Result<()> {
-    let (dest, src) = (self.canonical_type(dest)?, self.canonical_type(src)?);
+    let (dest, src) = (canonical_type!(self, dest), canonical_type!(self, src));
     if dest.primitive() {
       if src == dest {
         return Ok(());
@@ -178,14 +194,15 @@ impl<'src, 'fun> Context<'src, 'fun> {
       }
       FieldAccess { expr, fields } => {
         let t = self.tc_expr(expr)?;
-        self.typeof_access(t, fields)
+        self.typeof_access(&t, fields)
       }
       WithExpression { expr, fields } => {
         let t = self.tc_expr(expr)?;
         for (var, field_expr) in fields.iter() {
-          let e = self.tc_expr(field_expr)?;
-          let v = self.canonical_type(&t.field(var)?)?;
-          if v != e {
+          let assign_type = self.tc_expr(field_expr)?;
+          let field_type = &t.field(var)?;
+          let field_type = canonical_type!(self, field_type);
+          if field_type != &assign_type {
             return err("mismatch in with-expression");
           }
         }
@@ -200,9 +217,10 @@ impl<'src, 'fun> Context<'src, 'fun> {
           None => return err("unknown struct type"),
         };
         for (var, field_expr) in fields.iter() {
-          let e = self.tc_expr(field_expr)?;
-          let v = self.canonical_type(&t.field(var)?)?;
-          if v != e {
+          let assign_type = self.tc_expr(field_expr)?;
+          let field_type = &t.field(var)?;
+          let field_type = canonical_type!(self, field_type);
+          if &assign_type != field_type {
             return err("mismatch in struct literal");
           }
         }
@@ -275,24 +293,14 @@ impl<'src, 'fun> Context<'src, 'fun> {
     }
   }
 
-  fn canonical_type(&self, typ: &ast::Typ) -> Result<ast::Typ> {
-    match typ {
-      ast::Typ::Alias(ref alias) => match self.types.get(alias.as_str()) {
-        Some(&v) => Ok(v.clone()),
-        None => err("undefined type alias"),
-      },
-      t => Ok(t.clone()),
-    }
-  }
-
-  fn typeof_access(&self, base: ast::Typ, access: &[ast::Var]) -> Result<ast::Typ> {
-    let mut base_type = self.canonical_type(&base)?; // Not 'Alias(_)'
+  fn typeof_access(&self, base: &ast::Typ, access: &[ast::Var]) -> Result<ast::Typ> {
+    let mut base_type = canonical_type!(self, base); // Not 'Alias(_)'
     for access_field in access.iter() {
       match base_type {
         ast::Typ::Struct(ref typed_fields) => {
           for (field, typ) in typed_fields.iter() {
             if field == access_field {
-              base_type = self.canonical_type(typ)?;
+              base_type = canonical_type!(self, typ);
               break;
             }
           }
@@ -302,7 +310,8 @@ impl<'src, 'fun> Context<'src, 'fun> {
           match access_field.parse::<usize>() {
             Ok(i) => {
               if i < types.len() {
-                base_type = self.canonical_type(&types[i])?;
+                let t = &types[i];
+                base_type = canonical_type!(self, t);
                 break;
               }
             }
@@ -312,7 +321,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
         _ => return err("cant index non-composite type"),
       }
     }
-    Ok(base_type)
+    Ok(base_type.clone())
   }
 
   fn typeof_lvalue(&self, lvalue: &'src ast::LValue) -> Result<ast::Typ> {
@@ -324,7 +333,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
           return err("access isn't an access");
         }
         let base_type = self.typeof_variable(&access[0])?;
-        self.typeof_access(base_type, &access[1..])
+        self.typeof_access(&base_type, &access[1..])
       }
     }
   }
