@@ -18,7 +18,9 @@ use crate::ast;
 use crate::error::*;
 use std::collections::HashMap;
 
+/// We provide some convenience implementations of methods on our types.
 impl ast::Typ {
+  /// Test if self is an integral type, and return the type if so.
   fn integral(&self) -> Result<ast::Typ> {
     use ast::Typ::*;
     match self {
@@ -28,6 +30,7 @@ impl ast::Typ {
     }
   }
 
+  /// Test if self is a primitive type or not.
   fn primitive(&self) -> bool {
     use ast::Typ::*;
     match self {
@@ -36,6 +39,9 @@ impl ast::Typ {
     }
   }
 
+  /// If `self` is a composite type, returns the type of the field on self
+  /// named `name`. If not, returns an error. This is valid for structs
+  /// and tuples.
   fn field(&self, name: &ast::Var) -> Result<ast::Typ> {
     match self {
       ast::Typ::Struct(ref typed_fields) => {
@@ -61,13 +67,20 @@ impl ast::BinOp {
     use ast::BinOp::*;
     use ast::Typ::*;
 
-    // Todo: not quite right for mod
     match (self, lhs, rhs) {
+      // Arithmetic operations do not automatically convert.
       (Add | Sub | Mul | Div | Mod, &Int, &Int) => Ok(Int),
       (Add | Sub | Mul | Div | Mod, &Float, &Float) => Ok(Float),
+
+      // Comparison operators do not automatically convert.
       (Lt | Gt | Leq | Geq, &Int, &Int) => Ok(Bool),
       (Lt | Gt | Leq | Geq, &Float, &Float) => Ok(Bool),
+
+      // We will have separate, bitwise operators for the appropriate
+      // representations of the types.
       (And | Or, &Bool, &Bool) => Ok(Bool),
+
+      // Equal and Not Equal are polymorphic operations.
       (Eql | Neq, t1, t2) => {
         if t1 == t2 {
           Ok(t1.clone())
@@ -75,6 +88,7 @@ impl ast::BinOp {
           err("non-poly-match-eq")
         }
       }
+
       _ => err("non-match binop"),
     }
   }
@@ -102,6 +116,9 @@ macro_rules! canonical_type {
   };
 }
 
+/// A context for type-checking, which contains a mapping between functions
+/// and their signatures, a mapping of type aliases to their resolved types,
+/// and a mapping of declared variables currently in scope to their types.
 impl<'src, 'fun> Context<'src, 'fun> {
   fn new(
     functions: &'fun HashMap<&'src str, ast::Typ>,
@@ -119,8 +136,17 @@ impl<'src, 'fun> Context<'src, 'fun> {
     self.variables.insert(var, typ);
   }
 
+  /// Determines if a source type is assignable to another destination type,
+  /// i.e. it contains all of the needed information to satisfy the operations
+  /// available on the destination type. This corresponds directly to having
+  /// a value of t : `src` be assignable to a variable of t : `dest`.
   fn assignable(&mut self, dest: &ast::Typ, src: &ast::Typ) -> Result<()> {
+    use ast::Typ::*;
+
+    // We fetch the canonical type, removing type aliases from the equation.
     let (dest, src) = (canonical_type!(self, dest), canonical_type!(self, src));
+
+    // Primitives must be of the same type to be assignable.
     if dest.primitive() {
       if src == dest {
         return Ok(());
@@ -128,7 +154,10 @@ impl<'src, 'fun> Context<'src, 'fun> {
         return err("primitive mismatch");
       }
     }
-    use ast::Typ::*;
+
+    // Currently only structures and tuples are planned to be assignable,
+    // Enum variants are named and thus not as loosely interchangable.
+    // Function types will also be supported once they are implemented.
     match dest {
       Struct(dest_fields) => {
         if let Struct(src_fields) = src {
@@ -156,13 +185,20 @@ impl<'src, 'fun> Context<'src, 'fun> {
     match expr {
       // Todo: add variable scoping
       Block(box expr) => self.tc_expr(expr),
+
+      // Lists of statements have the type of the last statement in the list.
+      // If that statement is not an expression, this type will be unit.
       Statements(stmts) => {
         for stmt in stmts[..stmts.len() - 1].iter() {
           self.tc_stmt(stmt)?;
         }
         self.tc_stmt(stmts.last().unwrap())
       }
+
+      // Variables must be declared, or this will not be found.
       Variable(v) => self.typeof_variable(v),
+
+      //
       Call { function, args } => match self.functions.get(function.as_str()) {
         Some(ast::Typ::Function(box typ, box ast::Typ::Tuple(arg_typs))) => {
           if args.len() == arg_typs.len() {
@@ -179,6 +215,8 @@ impl<'src, 'fun> Context<'src, 'fun> {
         }
         _ => err("unexpected function type"),
       },
+
+      //
       If { condition, t1, t2 } => {
         if let ast::Typ::Bool = self.tc_expr(condition)? {
           let typ1 = self.tc_expr(t1)?;
@@ -192,10 +230,14 @@ impl<'src, 'fun> Context<'src, 'fun> {
           return err("non-boolean conditional header");
         }
       }
+
+      //
       FieldAccess { expr, fields } => {
         let t = self.tc_expr(expr)?;
         self.typeof_access(&t, fields)
       }
+
+      //
       WithExpression { expr, fields } => {
         let t = self.tc_expr(expr)?;
         for (var, field_expr) in fields.iter() {
@@ -342,11 +384,15 @@ impl<'src, 'fun> Context<'src, 'fun> {
     use ast::Stmt::*;
     match stmt {
       BREAK => Ok(ast::Typ::Unit),
+      //
       Expr(e) => self.tc_expr(e),
+
+      //
       Loop(e) | Return(e) => {
         self.tc_expr(e)?;
         Ok(ast::Typ::Unit)
       }
+      // Declare and define a value.
       Let { name, value } => {
         let typ = self.tc_expr(value)?;
         self.define(name, typ);
