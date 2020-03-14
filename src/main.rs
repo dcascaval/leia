@@ -7,6 +7,7 @@
 
 mod args;
 mod ast;
+mod bc;
 mod error;
 mod lex;
 mod parse;
