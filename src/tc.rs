@@ -105,15 +105,16 @@ struct Context<'src, 'fun> {
 // be a reference with a different lifetime than the one of 'src, but
 // it can't be known which one this function will return.
 macro_rules! canonical_type {
-  ($ctx : ident, $typ : ident) => {
-    match $typ {
-      ast::Typ::Alias(ref alias) => match $ctx.types.get(alias.as_str()) {
-        Some(&v) => v,
-        None => return err("undefined type alias"),
-      },
-      t => t,
+  ($ctx : ident, $typ : ident) => {{
+    let mut t = $typ;
+    while let &ast::Typ::Alias(ref alias) = t {
+      t = $ctx
+        .types
+        .get(alias.as_str())
+        .expect("undefined type alias");
     }
-  };
+    t
+  }};
 }
 
 /// A context for type-checking, which contains a mapping between functions
