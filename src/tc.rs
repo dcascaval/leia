@@ -57,7 +57,10 @@ impl ast::Typ {
         Ok(i) if i < types.len() => Ok(types[i].clone()),
         _ => err("name not a tuple field"),
       },
-      _ => err("no fields on non-composite type"),
+      _ => errs(format!(
+        "No field {:?} on non-composite type {:?}",
+        name, self
+      )),
     }
   }
 }
@@ -105,7 +108,7 @@ struct Context<'src, 'fun> {
 // be a reference with a different lifetime than the one of 'src, but
 // it can't be known which one this function will return.
 macro_rules! canonical_type {
-  ($ctx : ident, $typ : ident) => {{
+  ($ctx : ident, $typ : expr) => {{
     let mut t = $typ;
     while let &ast::Typ::Alias(ref alias) = t {
       t = $ctx
@@ -201,13 +204,11 @@ impl<'src, 'fun> Context<'src, 'fun> {
 
       //
       Call { function, args } => match self.functions.get(function.as_str()) {
-        Some(ast::Typ::Function(box typ, box ast::Typ::Tuple(arg_typs))) => {
+        Some(ast::Typ::Function(box ast::Typ::Tuple(arg_typs), box typ)) => {
           if args.len() == arg_typs.len() {
             for (i, arg) in args.iter().enumerate() {
               let t = self.tc_expr(arg)?;
-              if t != arg_typs[i] {
-                return err("type mismatch in function args");
-              }
+              self.assignable(&arg_typs[i], &t)?;
             }
             Ok(typ.clone())
           } else {
@@ -241,6 +242,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
       //
       WithExpression { expr, fields } => {
         let t = self.tc_expr(expr)?;
+        let t = canonical_type!(self, &t);
         for (var, field_expr) in fields.iter() {
           let assign_type = self.tc_expr(field_expr)?;
           let field_type = &t.field(var)?;
@@ -249,7 +251,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
             return err("mismatch in with-expression");
           }
         }
-        Ok(t)
+        Ok(t.clone())
       }
       IntLiteral(_) => Ok(ast::Typ::Int),
       BoolLiteral(_) => Ok(ast::Typ::Bool),
@@ -259,11 +261,11 @@ impl<'src, 'fun> Context<'src, 'fun> {
           Some(&t) => t,
           None => return err("unknown struct type"),
         };
+        let t = canonical_type!(self, t);
         for (var, field_expr) in fields.iter() {
           let assign_type = self.tc_expr(field_expr)?;
-          let field_type = &t.field(var)?;
-          let field_type = canonical_type!(self, field_type);
-          if &assign_type != field_type {
+          let field_type = t.field(var)?;
+          if canonical_type!(self, &assign_type) != canonical_type!(self, &field_type) {
             return err("mismatch in struct literal");
           }
         }
@@ -415,10 +417,14 @@ impl<'src, 'fun> Context<'src, 'fun> {
   fn tc_function(&mut self, return_type: &ast::Typ, body: &'src ast::Expr) -> Result<()> {
     match self.tc_expr(body) {
       Ok(typ) => {
+        let return_type = canonical_type!(self, return_type);
         if &typ == return_type {
           Ok(())
         } else {
-          err("type mismatch")
+          errs(format!(
+            "type mismatch: expected {:?}, got {:?}",
+            return_type, typ
+          ))
         }
       }
       Err(e) => Err(e),
