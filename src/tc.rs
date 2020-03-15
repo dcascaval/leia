@@ -178,10 +178,10 @@ impl<'src, 'fun> Context<'src, 'fun> {
             }
           }
         }
+        return Ok(());
       }
-      _ => unimplemented!(),
-    };
-    err("")
+      _ => errs(format!("assignability failed from {:?} to {:?}", src, dest)),
+    }
   }
 
   fn tc_expr(&mut self, expr: &'src ast::Expr) -> Result<ast::Typ> {

@@ -80,7 +80,7 @@ fn main() {
 
       match tc::typecheck(&program) {
         Ok(_) => println!("Pass typecheck."),
-        Err(m) => eprintln!("{}", m),
+        Err(m) => eprintln!("Type error: {}", m),
       }
 
       0
