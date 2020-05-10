@@ -83,7 +83,7 @@ impl Context {
   // the lvalue. This is the value we will try to modify, and if we can't
   // modify it, we will mutate this instance of it, splitting out from
   // all the rest.
-  fn access<'a>(value: &'a mut Rc<Value>, name: &Var) -> &'a mut Rc<Value> {
+  fn mutable_access<'a>(value: &'a mut Rc<Value>, name: &Var) -> &'a mut Rc<Value> {
     // Todo: closer investigation around the mutability
     // here. How often does it really copy? Does the hashmap's
     // pair always force a clone? Can we get a reference into the map?
@@ -104,6 +104,24 @@ impl Context {
     }
   }
 
+  fn access<'a>(value: Rc<Value>, name: &Var) -> Rc<Value> {
+    match value.as_ref() {
+      Value::Tuple(fields) => {
+        let i = name.parse::<usize>().unwrap();
+        return fields[i].clone();
+      }
+      Value::Struct(fields) => {
+        for (f, val) in fields.iter() {
+          if f == name {
+            return val.clone();
+          }
+        }
+        panic!("Unknown member")
+      }
+      _ => panic!("Non-structured access"),
+    }
+  }
+
   fn eval_lvalue<'a>(&'a mut self, lval: &LValue) -> &mut Rc<Value> {
     match lval {
       LValue::Ident(v) => self.env.get_mut(v).expect("Undefined variable"),
@@ -112,7 +130,7 @@ impl Context {
         [v, vs @ ..] => {
           let mut cell = self.env.get_mut(v).expect("Undefined variable");
           for v in vs.iter() {
-            cell = Context::access(cell, v);
+            cell = Context::mutable_access(cell, v);
           }
           cell
         }
@@ -242,11 +260,12 @@ impl Context {
           panic!()
         }
       },
-
-      // Todo: This is where our copy-on-write really shines.
-      FieldAccess { .. } => {
-        // let mut e = expr;
-        todo!()
+      FieldAccess { expr, fields } => {
+        let mut lhs = self.eval_expr(expr);
+        for field in fields.iter() {
+          lhs = Context::access(lhs, field)
+        }
+        lhs
       }
       Call { function, args } => {
         let args = args
