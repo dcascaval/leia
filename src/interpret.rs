@@ -71,15 +71,15 @@ impl Context {
     };
   }
 
-  fn eval_stmt(&mut self, stmt: &Stmt) -> Cow<Value> {
+  fn eval_stmt(&mut self, _stmt: &Stmt) -> Cow<Value> {
     todo!()
   }
 
-  fn eval_binop(op: BinOp, lhs: Value, rhs: Value) -> Value {
+  fn eval_binop(_op: BinOp, _lhs: Value, _rhs: Value) -> Value {
     todo!()
   }
 
-  fn eval_unop(op: UnOp, rhs: Value) -> Value {
+  fn eval_unop(_op: UnOp, _rhs: Value) -> Value {
     todo!()
   }
 
@@ -89,21 +89,24 @@ impl Context {
     match expr {
       Block(box expr) => {
         self.env.push();
-        let result = self.eval_expr(&expr);
+        let result = self.eval_expr(&expr).into_owned();
         self.env.pop();
-        result
+        Cow::Owned(result)
       }
       Statements(stmts) => {
-        let mut result = Cow::Owned(Value::Unit);
-        for stmt in stmts.iter() {
-          result = self.eval_stmt(stmt)
+        if let Some((last, stmts)) = stmts[..].split_last() {
+          for stmt in stmts.iter() {
+            self.eval_stmt(stmt);
+          }
+          self.eval_stmt(last)
+        } else {
+          Cow::Owned(Value::Unit)
         }
-        result
       }
       IntLiteral(i) => Cow::Owned(Value::Int(*i)),
       BoolLiteral(b) => Cow::Owned(Value::Bool(*b)),
       FloatLiteral(f) => Cow::Owned(Value::Float(*f)),
-      StructLiteral { name, fields } => Cow::Owned(Value::Struct(
+      StructLiteral { fields, .. } => Cow::Owned(Value::Struct(
         fields
           .iter()
           .map(|(f, e)| (f.clone(), self.eval_expr(e).into_owned()))
@@ -115,8 +118,8 @@ impl Context {
           .map(|v| self.eval_expr(v).into_owned())
           .collect(),
       )),
-      AsExpression { expr, target } => todo!(),
-      EnumLiteral { name, args } => todo!(),
+      AsExpression { .. } => todo!(),
+      EnumLiteral { .. } => todo!(),
       WithExpression { expr, fields } => {
         let v = self.eval_expr(expr);
         let mut old_fields = match v {
@@ -159,8 +162,8 @@ impl Context {
 
       // Todo: This is where cow really shines. However our acess type sucks
       // right now. It should be one at a time.
-      FieldAccess { expr, fields } => {
-        let mut e = expr;
+      FieldAccess { .. } => {
+        // let mut e = expr;
         todo!()
       }
       Call { function, args } => {
@@ -196,9 +199,9 @@ impl Context {
     for (i, name) in arg_names.iter().enumerate() {
       self.env.def(name, &args[i]);
     }
-    let result = self.eval_expr(body);
+    let result = self.eval_expr(body).into_owned();
     self.env.pop();
-    result
+    Cow::Owned(result)
   }
 }
 
