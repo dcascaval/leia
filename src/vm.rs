@@ -5,8 +5,10 @@ use std::fmt::Display;
 
 #[derive(Clone, Debug)]
 pub enum Value {
+  Unit,
   Int(i64),
   Bool(bool),
+  Float(f64),
   Tuple(Vec<Value>),
   Struct(Vec<(String, Value)>),
 }
