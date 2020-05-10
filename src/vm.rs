@@ -2,6 +2,7 @@ use crate::ast::*;
 
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -9,8 +10,39 @@ pub enum Value {
   Int(i64),
   Bool(bool),
   Float(f64),
-  Tuple(Vec<Value>),
-  Struct(Vec<(String, Value)>),
+  Tuple(Vec<Rc<Value>>),
+  Struct(Vec<(String, Rc<Value>)>),
+}
+
+impl Display for Value {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Value::Unit => write!(f, "()"),
+      Value::Int(i) => write!(f, "{}", i),
+      Value::Bool(b) => write!(f, "{}", b),
+      Value::Float(n) => write!(f, "{}", n),
+      Value::Tuple(t) => {
+        write!(f, "(")?;
+        if let [elems @ .., last] = &t[..] {
+          for elem in elems.iter() {
+            write!(f, "{},", **elem)?;
+          }
+          write!(f, "{}", **last)?;
+        }
+        write!(f, ")")
+      }
+      Value::Struct(fs) => {
+        write!(f, "{{")?;
+        if let [elems @ .., last] = &fs[..] {
+          for (field, var) in elems.iter() {
+            write!(f, "{} : {}, ", field, **var)?;
+          }
+          write!(f, "{} : {} ", last.0, *last.1)?;
+        }
+        write!(f, "}}")
+      }
+    }
+  }
 }
 
 macro_rules! impl_arith {
@@ -66,12 +98,6 @@ impl std::ops::Not for Value {
       Value::Bool(b) => Value::Bool(!b),
       _ => panic!("Non-boolean not!"),
     }
-  }
-}
-
-impl Display for Value {
-  fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    todo!()
   }
 }
 

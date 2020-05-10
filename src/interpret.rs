@@ -1,13 +1,12 @@
 use crate::ast::*;
 use crate::vm::Value;
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 // Variable environments
 struct Environment {
-  envs: Vec<HashMap<Var, Value>>,
+  envs: Vec<HashMap<Var, Rc<Value>>>,
 }
 
 impl Environment {
@@ -18,17 +17,28 @@ impl Environment {
     };
   }
 
-  fn def(&mut self, name: &Var, value: &Value) {
+  fn def(&mut self, name: &Var, value: Rc<Value>) {
     let env = self.envs.last_mut().unwrap();
     if let None = env.get(name) {
-      env.insert(name.clone(), value.clone());
+      env.insert(name.clone(), value);
     }
   }
 
-  fn get(&self, name: &Var) -> Option<&Value> {
+  fn assign(&mut self, name: &Var, value: Rc<Value>) {
+    for env in self.envs.iter_mut().rev() {
+      if let Some(entry) = env.get_mut(name) {
+        *entry = value;
+        return;
+      }
+    }
+    eprintln!("Cannot assign {} to undefined variable: {}", *value, name);
+    panic!()
+  }
+
+  fn get(&self, name: &Var) -> Option<Rc<Value>> {
     for env in self.envs.iter().rev() {
       if let Some(value) = env.get(name) {
-        return Some(value);
+        return Some(value.clone());
       }
     }
     None
@@ -71,11 +81,30 @@ impl Context {
     };
   }
 
-  fn eval_stmt(&mut self, _stmt: &Stmt) -> Cow<Value> {
-    todo!()
+  fn eval_stmt(&mut self, stmt: &Stmt) -> Option<Rc<Value>> {
+    use Stmt::*;
+    match stmt {
+      Let { name, value } => {
+        let result = self.eval_expr(value);
+        self.env.def(name, result);
+        None
+      }
+      Assign { value, .. } => {
+        let _result = self.eval_expr(value);
+        // Mutating stuff... urgh.
+        // Not that easy.
+        // self.env.assign(target, result);
+        None
+      }
+      Expr(_) => todo!(),
+      Loop(_) => todo!(),
+      Return(_) => todo!(),
+      BREAK => todo!(),
+    }
   }
 
-  fn eval_binop(op: BinOp, lhs: Value, rhs: Value) -> Value {
+  fn eval_binop(op: BinOp, lhs: Rc<Value>, rhs: Rc<Value>) -> Value {
+    let (lhs, rhs) = (lhs.as_ref().clone(), rhs.as_ref().clone());
     match op {
       BinOp::Add => lhs + rhs,
       BinOp::Sub => lhs - rhs,
@@ -93,68 +122,64 @@ impl Context {
     }
   }
 
-  fn eval_unop(op: UnOp, rhs: Value) -> Value {
+  fn eval_unop(op: UnOp, rhs: Rc<Value>) -> Value {
+    let rhs = rhs.as_ref().clone();
     match op {
       UnOp::Not => !rhs,
       UnOp::Sub => -rhs,
     }
   }
 
-  fn eval_expr(&mut self, expr: &Expr) -> Cow<Value> {
+  // What if we don't want to allocate for "just a dumb int"?
+  // Soln: Custom value container. It might be an Rc, it might not.
+  fn eval_expr(&mut self, expr: &Expr) -> Rc<Value> {
     use Expr::*;
 
     match expr {
       Block(box expr) => {
         self.env.push();
-        // When we're returning from a block, we are discarding the environment.
-        // In this case it is possible that our evaluated expression is a reference
-        // to that environment (e.g. a variable inside it) or contains one.
-        // It is, I think, impossible to tell if the variable is in _this_
-        // environment or not, so we end up copying it to make it accessible
-        // outside of this scope in the general case.
-        let result = self.eval_expr(&expr).into_owned();
+        let result = self.eval_expr(&expr);
         self.env.pop();
-        Cow::Owned(result)
+        result
       }
       Statements(stmts) => {
         if let Some((last, stmts)) = stmts[..].split_last() {
           for stmt in stmts.iter() {
             self.eval_stmt(stmt);
           }
-          self.eval_stmt(last)
-        } else {
-          Cow::Owned(Value::Unit)
+          if let Some(v) = self.eval_stmt(last) {
+            return v;
+          }
         }
+        Rc::new(Value::Unit)
       }
-      IntLiteral(i) => Cow::Owned(Value::Int(*i)),
-      BoolLiteral(b) => Cow::Owned(Value::Bool(*b)),
-      FloatLiteral(f) => Cow::Owned(Value::Float(*f)),
-      StructLiteral { fields, .. } => Cow::Owned(Value::Struct(
+      IntLiteral(i) => Rc::new(Value::Int(*i)),
+      BoolLiteral(b) => Rc::new(Value::Bool(*b)),
+      FloatLiteral(f) => Rc::new(Value::Float(*f)),
+      StructLiteral { fields, .. } => Rc::new(Value::Struct(
         fields
           .iter()
-          .map(|(f, e)| (f.clone(), self.eval_expr(e).into_owned()))
+          .map(|(f, e)| (f.clone(), self.eval_expr(e)))
           .collect(),
       )),
-      TupleLiteral(fields) => Cow::Owned(Value::Tuple(
-        fields
-          .iter()
-          .map(|v| self.eval_expr(v).into_owned())
-          .collect(),
+      TupleLiteral(fields) => Rc::new(Value::Tuple(
+        fields.iter().map(|v| self.eval_expr(v)).collect(),
       )),
       AsExpression { .. } => todo!(),
       EnumLiteral { .. } => todo!(),
       WithExpression { expr, fields } => {
         let v = self.eval_expr(expr);
-        let mut old_fields = match v {
-          Cow::Owned(Value::Struct(old_fields)) => old_fields,
-          Cow::Borrowed(Value::Struct(old_fields)) => old_fields.clone(),
+        // We copy all fields in a with-expression (or at least, their names --
+        // we clone their RCs and later replace what we need.
+        let mut old_fields = match &*v {
+          Value::Struct(old_fields) => old_fields.clone(),
           _ => {
             eprintln!("With on non-structure");
             panic!()
           }
         };
         for (field, expr) in fields.iter() {
-          let new_value = self.eval_expr(expr).into_owned();
+          let new_value = self.eval_expr(expr);
           for (f, v) in old_fields.iter_mut() {
             if f == field {
               *v = new_value;
@@ -162,29 +187,25 @@ impl Context {
             }
           }
         }
-        Cow::Owned(Value::Struct(old_fields))
+        Rc::new(Value::Struct(old_fields))
       }
       BinaryOp { op, lhs, rhs } => {
-        let (lhs, rhs) = (
-          self.eval_expr(lhs).into_owned(),
-          self.eval_expr(rhs).into_owned(),
-        );
-        Cow::Owned(Context::eval_binop(*op, lhs, rhs))
+        let (lhs, rhs) = (self.eval_expr(lhs), self.eval_expr(rhs));
+        Rc::new(Context::eval_binop(*op, lhs, rhs))
       }
       UnaryOp { op, rhs } => {
-        let rhs = self.eval_expr(rhs).into_owned();
-        Cow::Owned(Context::eval_unop(*op, rhs))
+        let rhs = self.eval_expr(rhs);
+        Rc::new(Context::eval_unop(*op, rhs))
       }
       Variable(name) => match self.env.get(name) {
-        Some(value) => Cow::Borrowed(value),
+        Some(value) => value,
         None => {
           eprintln!("undefined variable: {}", name);
           panic!()
         }
       },
 
-      // Todo: This is where cow really shines. However our acess type sucks
-      // right now. It should be one at a time.
+      // Todo: This is where our copy-on-write really shines.
       FieldAccess { .. } => {
         // let mut e = expr;
         todo!()
@@ -192,30 +213,27 @@ impl Context {
       Call { function, args } => {
         let args = args
           .iter()
-          .map(|a| self.eval_expr(a).into_owned())
+          .map(|a| self.eval_expr(a).as_ref().clone())
           .collect();
         self.eval_fn(function, args)
       }
       If { condition, t1, t2 } => {
-        let b = match self.eval_expr(condition) {
-          Cow::Borrowed(Value::Bool(b)) => *b,
-          Cow::Owned(Value::Bool(b)) => b,
-          _ => {
-            eprintln!("Non-boolean condition");
-            panic!()
+        if let Value::Bool(b) = &*self.eval_expr(condition) {
+          if *b {
+            self.eval_expr(t1)
+          } else {
+            self.eval_expr(t2)
           }
-        };
-        if b {
-          self.eval_expr(t1)
         } else {
-          self.eval_expr(t2)
+          eprintln!("Non-boolean condition");
+          panic!()
         }
       }
       Match(_) => todo!(),
     }
   }
 
-  fn eval_fn(&mut self, name: &Var, args: Vec<Value>) -> Cow<Value> {
+  fn eval_fn(&mut self, name: &Var, args: Vec<Value>) -> Rc<Value> {
     let func = self.functions.get(name).expect("fn").clone();
     let (arg_names, body) = (
       &func.0,
@@ -225,16 +243,16 @@ impl Context {
       },
     );
     self.env.push();
-    for (i, name) in arg_names.iter().enumerate() {
-      self.env.def(name, &args[i]);
+    for (name, arg) in arg_names.iter().zip(args.into_iter()) {
+      self.env.def(name, Rc::new(arg));
     }
-    let result = self.eval_expr(body).into_owned();
+    let result = self.eval_expr(body);
     self.env.pop();
-    Cow::Owned(result)
+    result
   }
 }
 
 pub fn eval(program: Program) -> Value {
   let mut ctx = Context::new(program);
-  ctx.eval_fn(&String::from("main"), vec![]).into_owned()
+  ctx.eval_fn(&String::from("main"), vec![]).as_ref().clone()
 }
