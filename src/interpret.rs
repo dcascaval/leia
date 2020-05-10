@@ -19,8 +19,13 @@ impl Environment {
 
   fn def(&mut self, name: &Var, value: Rc<Value>) {
     let env = self.envs.last_mut().unwrap();
-    if let None = env.get(name) {
-      env.insert(name.clone(), value);
+    match env.get_mut(name) {
+      None => {
+        env.insert(name.clone(), value);
+      }
+      Some(entry) => {
+        *entry = value;
+      }
     }
   }
 
