@@ -24,21 +24,19 @@ impl Environment {
     }
   }
 
-  fn assign(&mut self, name: &Var, value: Rc<Value>) {
-    for env in self.envs.iter_mut().rev() {
-      if let Some(entry) = env.get_mut(name) {
-        *entry = value;
-        return;
-      }
-    }
-    eprintln!("Cannot assign {} to undefined variable: {}", *value, name);
-    panic!()
-  }
-
   fn get(&self, name: &Var) -> Option<Rc<Value>> {
     for env in self.envs.iter().rev() {
       if let Some(value) = env.get(name) {
         return Some(value.clone());
+      }
+    }
+    None
+  }
+
+  fn get_mut(&mut self, name: &Var) -> Option<&mut Rc<Value>> {
+    for env in self.envs.iter_mut().rev() {
+      if let Some(value) = env.get_mut(name) {
+        return Some(value);
       }
     }
     None
@@ -85,16 +83,19 @@ impl Context {
   // the lvalue. This is the value we will try to modify, and if we can't
   // modify it, we will mutate this instance of it, splitting out from
   // all the rest.
-  fn access(value: Rc<Value>, name: &Var) -> Rc<Value> {
-    match &*value {
+  fn access<'a>(value: &'a mut Rc<Value>, name: &Var) -> &'a mut Rc<Value> {
+    // Todo: closer investigation around the mutability
+    // here. How often does it really copy? Does the hashmap's
+    // pair always force a clone? Can we get a reference into the map?
+    match Rc::make_mut(value) {
       Value::Tuple(fields) => {
         let i = name.parse::<usize>().unwrap();
-        return fields[i].clone();
+        return &mut fields[i];
       }
       Value::Struct(fields) => {
-        for (f, val) in fields.iter() {
+        for (f, val) in fields.iter_mut() {
           if f == name {
-            return val.clone();
+            return val;
           }
         }
         panic!("Unknown member")
@@ -103,13 +104,13 @@ impl Context {
     }
   }
 
-  fn eval_lvalue<'a>(&'a mut self, lval: &LValue) -> Rc<Value> {
+  fn eval_lvalue<'a>(&'a mut self, lval: &LValue) -> &mut Rc<Value> {
     match lval {
-      LValue::Ident(v) => self.env.get(v).expect("Undefined variable"),
+      LValue::Ident(v) => self.env.get_mut(v).expect("Undefined variable"),
       LValue::Access(vars) => match &vars[..] {
         [] => panic!("Empty access"),
         [v, vs @ ..] => {
-          let mut cell = self.env.get(v).expect("Undefined variable");
+          let mut cell = self.env.get_mut(v).expect("Undefined variable");
           for v in vs.iter() {
             cell = Context::access(cell, v);
           }
@@ -128,12 +129,9 @@ impl Context {
         None
       }
       Assign { value, target } => {
-        // Todo: closer investigation around the mutability
-        // here. How often does it really copy? Does the hashmap's
-        // pair always force a clone? Can we get a reference into the map?
         let result = self.eval_expr(value);
-        let mut target = self.eval_lvalue(target);
-        *Rc::make_mut(&mut target) = result.as_ref().clone();
+        let target = self.eval_lvalue(target);
+        *target = result;
         None
       }
       Expr(e) => Some(self.eval_expr(e)),
