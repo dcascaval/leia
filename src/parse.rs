@@ -15,13 +15,20 @@
 // and that it doesn't accidentally drop any parsed expressions because it hit
 // some error.
 use crate::ast;
-use crate::error::{errs, Error, Result};
+use crate::error::{err, Error, Result};
 use crate::lex::{Lexer, Token};
 use std::result;
 
 pub struct Parser<'a> {
   lexer: Lexer<'a>,
   next: Option<Result<Token>>,
+}
+
+macro_rules! parse_error {
+  ($lexer:ident, $($arg:expr),+) => {{
+    let msg = format!($($arg),+);
+    Parser::error($lexer,msg)
+  }};
 }
 
 impl<'a> Parser<'a> {
@@ -63,7 +70,7 @@ impl<'a> Parser<'a> {
     if ltok == tok {
       Ok(())
     } else {
-      errs(format!("Expected {:?}, got {:?}", tok, ltok))
+      parse_error!(self, "Expected {:?}, got {:?}", tok, ltok)
     }
   }
 
@@ -77,9 +84,8 @@ impl<'a> Parser<'a> {
         Err(Error::EOF) => {
           return Ok(ast::Program(program));
         }
-        Err(Error::Message(_e)) => {
-          println!("Error: {}", _e);
-          return errs(_e);
+        Err(Error::Message(e)) => {
+          return err(e);
         }
       }
     }
@@ -89,7 +95,7 @@ impl<'a> Parser<'a> {
     match self.token()? {
       Token::TYPE => self.typedef(),
       Token::FUNCTION => self.fun_defn(),
-      tok => errs(format!("Unknown global token: {:?}", tok)),
+      tok => parse_error!(self, "Unknown global token: {:?}", tok),
     }
   }
 
@@ -104,6 +110,19 @@ impl<'a> Parser<'a> {
     self.munch(Token::EQUAL)?;
     let typ = self.typ()?;
     Ok(ast::Gstmt::Typedef { typ, name })
+  }
+
+  fn error<T, Q>(&self, message: T) -> Result<Q>
+  where
+    T: Into<String>,
+  {
+    let pos = self.lexer.position;
+    err(format!(
+      "Parse error at position [{}:{}]: \n {}",
+      pos.line,
+      pos.col,
+      message.into()
+    ))
   }
 
   fn arg_list(&mut self) -> Result<ast::Args> {
@@ -125,10 +144,14 @@ impl<'a> Parser<'a> {
               return Ok(result);
             }
             Token::COMMA => self.skip()?,
-            tok => return errs(format!("Unknown token {:?} in argument list", tok)),
+            tok => {
+              return parse_error!(self, "Unknown token {:?} in argument list", tok);
+            }
           }
         }
-        tok => return errs(format!("Unknown token {:?} in argument list", tok)),
+        tok => {
+          return parse_error!(self, "Unknown token {:?} in argument list", tok);
+        }
       }
     }
   }
@@ -167,10 +190,7 @@ impl<'a> Parser<'a> {
             Token::RBRACE => (),
             Token::COMMA | Token::SEMICOLON => self.skip()?,
             tok => {
-              return errs(format!(
-                "Expected closing brace or semicolon, got {:?}",
-                tok
-              ))
+              return parse_error!(self, "Expected closing brace or semicolon, got {:?}", tok);
             }
           }
         }
@@ -179,10 +199,11 @@ impl<'a> Parser<'a> {
           return Ok(fields);
         }
         tok => {
-          return errs(format!(
+          return parse_error!(
+            self,
             "Expected name of struct field in literal, got {:?}",
             tok
-          ))
+          );
         }
       }
     }
@@ -199,7 +220,7 @@ impl<'a> Parser<'a> {
         match self.token()? {
           Token::RPAREN => break,
           Token::COMMA => (),
-          tok => return errs(format!("Unexpected token {:?} in function call", tok)),
+          tok => return parse_error!(self, "Unexpected token {:?} in function call", tok),
         };
       },
     };
@@ -221,7 +242,7 @@ impl<'a> Parser<'a> {
           match self.token()? {
             Token::COMMA => (),
             Token::RPAREN => return Ok(ast::Typ::Tuple(typs)),
-            tok => return errs(format!("Expected comma or closing paren, got {:?}", tok)),
+            tok => return parse_error!(self, "Expected comma or closing paren, got {:?}", tok),
           }
         }
       }
@@ -238,7 +259,7 @@ impl<'a> Parser<'a> {
           match self.token()? {
             Token::COMMA => (),
             Token::RBRACE => return Ok(ast::Typ::Struct(fields)),
-            tok => return errs(format!("Expected comma or closing brace, got {:?}", tok)),
+            tok => return parse_error!(self, "Expected comma or closing brace, got {:?}", tok),
           }
         }
       }
@@ -284,10 +305,11 @@ impl<'a> Parser<'a> {
         }
       }
       tok => {
-        return errs(format!(
+        return parse_error!(
+          self,
           "Expected opening paren, brace, or identifier, got {:?}",
           tok
-        ))
+        )
       }
     }
   }
@@ -295,7 +317,7 @@ impl<'a> Parser<'a> {
   fn ident(&mut self) -> Result<ast::Var> {
     match self.token()? {
       Token::Ident(string) => Ok(string),
-      tok => errs(format!("Could not match {:?} as ident", tok)),
+      tok => parse_error!(self, "Could not match {:?} as ident", tok),
     }
   }
 
@@ -337,7 +359,7 @@ impl<'a> Parser<'a> {
       match self.token()? {
         Token::SEMICOLON => (),
         Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
-        tok => return errs(format!("Unexpected token {:?} after expression", tok)),
+        tok => return parse_error!(self, "Unexpected token {:?} after expression", tok),
       };
     }
   }
@@ -450,7 +472,7 @@ impl<'a> Parser<'a> {
     match self.token()? {
       Token::MINUS => Ok(ast::UnOp::Sub),
       Token::LNOT => Ok(ast::UnOp::Not),
-      tok => errs(format!("Could not match token {:?} in unop", tok)),
+      tok => parse_error!(self, "Could not match token {:?} in unop", tok),
     }
   }
 
@@ -540,7 +562,7 @@ impl<'a> Parser<'a> {
       LPAREN => self.paren_expr(),
       LBRACE => self.block_expr(),
       MINUS | LNOT => self.unary_expr(),
-      tok => errs(format!("Could not match {:?} in primary_expr", tok)),
+      tok => parse_error!(self, "Could not match {:?} in primary_expr", tok),
     }
   }
 }

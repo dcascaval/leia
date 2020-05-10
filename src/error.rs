@@ -20,13 +20,11 @@ fn msg(s: &str) -> Error {
 }
 
 /// Shorthand to make an `std::result::Error` with a message
-pub fn err<T>(s: &str) -> Result<T> {
-  Err(Error::Message(s.to_string()))
-}
-
-/// Shorthand to use an owned string, such as the result of a formatter.
-pub fn errs<T>(s: String) -> Result<T> {
-  Err(Error::Message(s))
+pub fn err<T, Q>(s: T) -> Result<Q>
+where
+  T: Into<String>,
+{
+  Err(Error::Message(s.into()))
 }
 
 // Implement the traits we need to use this in the lexer & parser.

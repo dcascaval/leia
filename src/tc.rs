@@ -57,7 +57,7 @@ impl ast::Typ {
         Ok(i) if i < types.len() => Ok(types[i].clone()),
         _ => err("name not a tuple field"),
       },
-      _ => errs(format!(
+      _ => err(format!(
         "No field {:?} on non-composite type {:?}",
         name, self
       )),
@@ -180,7 +180,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
         }
         return Ok(());
       }
-      _ => errs(format!("assignability failed from {:?} to {:?}", src, dest)),
+      _ => err(format!("assignability failed from {:?} to {:?}", src, dest)),
     }
   }
 
@@ -421,7 +421,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
         if &typ == return_type {
           Ok(())
         } else {
-          errs(format!(
+          err(format!(
             "type mismatch: expected {:?}, got {:?}",
             return_type, typ
           ))

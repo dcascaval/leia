@@ -29,7 +29,7 @@
 //  'delimiter' (e.g. brace, parens, etc.) such that it matches what we've parsed so far.
 //   If this horrendously fails, it likely means the user has mismatched delimiters in some
 //   unrecoverable way, and we will attempt to error accordingly.
-use crate::error::{err, errs, Error, Result};
+use crate::error::{err, Error, Result};
 
 use std::borrow::Cow;
 use std::char;
@@ -93,18 +93,65 @@ pub enum Token {
 }
 
 pub struct Lexer<'a> {
+  pub position: Position,
   stream: Peekable<std::str::Chars<'a>>,
+}
+
+#[derive(Copy, Clone)]
+pub struct Position {
+  pub line: u32,
+  pub col: u32,
+}
+
+#[derive(Copy, Clone)]
+pub struct Span {
+  pub start: Position,
+  pub end: Position,
+}
+
+macro_rules! lex_error {
+  ($lexer:ident, $($arg:tt),+) => {
+    Lexer::error($lexer,format!($($arg),+))
+  };
 }
 
 impl<'a> Lexer<'a> {
   pub fn new(buf: &'a Cow<str>) -> Self {
     let chars = buf.chars();
     let peek = chars.peekable();
-    Lexer { stream: peek }
+    Lexer {
+      position: Position { line: 1, col: 0 },
+      stream: peek,
+    }
   }
 
   fn skip(&mut self) {
-    self.stream.next();
+    match self.stream.next() {
+      Some('\n') => {
+        self.position.line += 1;
+        self.position.col = 0;
+      }
+      Some(_) => {
+        self.position.col += 1;
+      }
+      None => (),
+    }
+  }
+
+  fn error<T, Q>(&mut self, message: T) -> Result<Q>
+  where
+    T: Into<String>,
+  {
+    err(format!(
+      "Lexer Error at position [{}:{}] : {}",
+      self.position.line,
+      self.position.col,
+      message.into()
+    ))
+  }
+
+  fn peek(&mut self) -> Option<&char> {
+    self.stream.peek()
   }
 
   /// Advance the stream and return the token.
@@ -115,7 +162,7 @@ impl<'a> Lexer<'a> {
 
   /// Peek at the stream. This will return the same value if called multiple times.
   fn current(&mut self) -> Result<char> {
-    if let Some(&c) = self.stream.peek() {
+    if let Some(&c) = self.peek() {
       return Ok(c);
     }
     Err(Error::EOF)
@@ -125,8 +172,8 @@ impl<'a> Lexer<'a> {
   fn skip_while<F: Fn(char) -> bool>(&mut self, pred: F) -> Result<()> {
     let mut ch = self.current()?;
     while pred(ch) {
-      self.stream.next();
-      if let Some(&b) = self.stream.peek() {
+      self.skip();
+      if let Some(&b) = self.peek() {
         ch = b as char;
       } else {
         break;
@@ -144,7 +191,7 @@ impl<'a> Lexer<'a> {
     while pred(ch) {
       buffer.push(ch);
       self.skip();
-      if let Some(&b) = self.stream.peek() {
+      if let Some(&b) = self.peek() {
         ch = b as char;
       } else {
         break;
@@ -175,7 +222,7 @@ impl<'a> Lexer<'a> {
     self.skip();
     match self.current()? {
       '&' => self.single(Token::LAND),
-      _ => err("Found single ampersand."),
+      _ => self.error("Found single ampersand"),
     }
   }
 
@@ -225,8 +272,7 @@ impl<'a> Lexer<'a> {
         _tok => Ident(ident),
       });
     }
-    // Todo: add error
-    err("Unexpectedly reached end of file while trying to parse: ")
+    self.error("Unexpectedly reached end of file while trying to parse.")
   }
 
   pub fn token(&mut self) -> Result<Token> {
@@ -258,7 +304,7 @@ impl<'a> Lexer<'a> {
         '/' => self.slash(),
         '0'..='9' => self.number(),
         'a'..='z' | 'A'..='Z' | '_' => self.literal(),
-        _ => errs(format!("Lexer failed to match character {:?}", c)),
+        _ => lex_error!(self, "Lexer failed to match character {:?}", c),
       }
     }
   }
