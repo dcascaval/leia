@@ -54,12 +54,12 @@ struct Context {}
 
 type Program = Vec<Vec<Instruction>>;
 
-impl Context {
-  fn of_ast(_program: ast::Program) -> Self {
-    unimplemented!()
-  }
+fn cg_ast(_program: ast::Program) -> Program {
+  unimplemented!()
+}
 
-  fn to_bc(self) -> Program {
+impl Context {
+  fn new(self) -> Self {
     unimplemented!()
   }
 }

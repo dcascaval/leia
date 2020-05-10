@@ -9,9 +9,11 @@ mod args;
 mod ast;
 mod bc;
 mod error;
+mod interpret;
 mod lex;
 mod parse;
 mod tc;
+mod vm;
 
 use std::fs;
 use std::fs::OpenOptions;
@@ -83,6 +85,7 @@ fn main() {
         Err(m) => eprintln!("Type error: {}", m),
       }
 
+      println!("{}", interpret::eval(program));
       0
     })
     .unwrap();
