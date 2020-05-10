@@ -81,6 +81,44 @@ impl Context {
     };
   }
 
+  // What we want... is to get a mutable reference to the RC targetted by
+  // the lvalue. This is the value we will try to modify, and if we can't
+  // modify it, we will mutate this instance of it, splitting out from
+  // all the rest.
+  fn access(value: Rc<Value>, name: &Var) -> Rc<Value> {
+    match &*value {
+      Value::Tuple(fields) => {
+        let i = name.parse::<usize>().unwrap();
+        return fields[i].clone();
+      }
+      Value::Struct(fields) => {
+        for (f, val) in fields.iter() {
+          if f == name {
+            return val.clone();
+          }
+        }
+        panic!("Unknown member")
+      }
+      _ => panic!("Non-structured access"),
+    }
+  }
+
+  fn eval_lvalue<'a>(&'a mut self, lval: &LValue) -> Rc<Value> {
+    match lval {
+      LValue::Ident(v) => self.env.get(v).expect("Undefined variable"),
+      LValue::Access(vars) => match &vars[..] {
+        [] => panic!("Empty access"),
+        [v, vs @ ..] => {
+          let mut cell = self.env.get(v).expect("Undefined variable");
+          for v in vs.iter() {
+            cell = Context::access(cell, v);
+          }
+          cell
+        }
+      },
+    }
+  }
+
   fn eval_stmt(&mut self, stmt: &Stmt) -> Option<Rc<Value>> {
     use Stmt::*;
     match stmt {
@@ -89,14 +127,16 @@ impl Context {
         self.env.def(name, result);
         None
       }
-      Assign { value, .. } => {
-        let _result = self.eval_expr(value);
-        // Mutating stuff... urgh.
-        // Not that easy.
-        // self.env.assign(target, result);
+      Assign { value, target } => {
+        // Todo: closer investigation around the mutability
+        // here. How often does it really copy? Does the hashmap's
+        // pair always force a clone? Can we get a reference into the map?
+        let result = self.eval_expr(value);
+        let mut target = self.eval_lvalue(target);
+        *Rc::make_mut(&mut target) = result.as_ref().clone();
         None
       }
-      Expr(_) => todo!(),
+      Expr(e) => Some(self.eval_expr(e)),
       Loop(_) => todo!(),
       Return(_) => todo!(),
       BREAK => todo!(),
