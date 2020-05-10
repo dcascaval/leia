@@ -75,12 +75,29 @@ impl Context {
     todo!()
   }
 
-  fn eval_binop(_op: BinOp, _lhs: Value, _rhs: Value) -> Value {
-    todo!()
+  fn eval_binop(op: BinOp, lhs: Value, rhs: Value) -> Value {
+    match op {
+      BinOp::Add => lhs + rhs,
+      BinOp::Sub => lhs - rhs,
+      BinOp::Mul => lhs * rhs,
+      BinOp::Div => lhs / rhs,
+      BinOp::Mod => lhs % rhs,
+      BinOp::Lt => lhs.lt(rhs),
+      BinOp::Leq => lhs.lte(rhs),
+      BinOp::Gt => lhs.gt(rhs),
+      BinOp::Geq => lhs.gte(rhs),
+      BinOp::Eql => lhs.eq(rhs),
+      BinOp::Neq => lhs.neq(rhs),
+      BinOp::And => lhs.and(rhs),
+      BinOp::Or => lhs.or(rhs),
+    }
   }
 
-  fn eval_unop(_op: UnOp, _rhs: Value) -> Value {
-    todo!()
+  fn eval_unop(op: UnOp, rhs: Value) -> Value {
+    match op {
+      UnOp::Not => !rhs,
+      UnOp::Sub => -rhs,
+    }
   }
 
   fn eval_expr(&mut self, expr: &Expr) -> Cow<Value> {
@@ -89,6 +106,12 @@ impl Context {
     match expr {
       Block(box expr) => {
         self.env.push();
+        // When we're returning from a block, we are discarding the environment.
+        // In this case it is possible that our evaluated expression is a reference
+        // to that environment (e.g. a variable inside it) or contains one.
+        // It is, I think, impossible to tell if the variable is in _this_
+        // environment or not, so we end up copying it to make it accessible
+        // outside of this scope in the general case.
         let result = self.eval_expr(&expr).into_owned();
         self.env.pop();
         Cow::Owned(result)
@@ -194,7 +217,13 @@ impl Context {
 
   fn eval_fn(&mut self, name: &Var, args: Vec<Value>) -> Cow<Value> {
     let func = self.functions.get(name).expect("fn").clone();
-    let (arg_names, body) = (&func.0, &func.1);
+    let (arg_names, body) = (
+      &func.0,
+      match &func.1 {
+        Expr::Block(box body) => &body,
+        other => other,
+      },
+    );
     self.env.push();
     for (i, name) in arg_names.iter().enumerate() {
       self.env.def(name, &args[i]);
