@@ -204,25 +204,26 @@ impl<'a> Lexer<'a> {
   }
 
   fn literal(&mut self) -> Result<Token> {
+    use Token::*;
     if let Ok(ident) = self.take_while(|ch| ch.is_alphanumeric() || ch == '_') {
-      return match ident.as_str() {
+      return Ok(match ident.as_str() {
         // Keywords:
-        "fn" => Ok(Token::FUNCTION),
-        "type" => Ok(Token::TYPE),
-        "loop" => Ok(Token::LOOP),
-        "break" => Ok(Token::BREAK),
-        "if" => Ok(Token::IF),
-        "else" => Ok(Token::ELSE),
-        "return" => Ok(Token::RETURN),
-        "match" => Ok(Token::MATCH),
-        "as" => Ok(Token::AS),
-        "with" => Ok(Token::WITH),
-        "let" => Ok(Token::LET),
-        "then" => Ok(Token::THEN),
-        "true" => Ok(Token::Boolean(true)),
-        "false" => Ok(Token::Boolean(false)),
-        _tok => Ok(Token::Ident(ident)),
-      };
+        "fn" => FUNCTION,
+        "type" => TYPE,
+        "loop" => LOOP,
+        "break" => BREAK,
+        "if" => IF,
+        "else" => ELSE,
+        "return" => RETURN,
+        "match" => MATCH,
+        "as" => AS,
+        "with" => WITH,
+        "let" => LET,
+        "then" => THEN,
+        "true" => Boolean(true),
+        "false" => Boolean(false),
+        _tok => Ident(ident),
+      });
     }
     // Todo: add error
     err("Unexpectedly reached end of file while trying to parse: ")
@@ -234,23 +235,24 @@ impl<'a> Lexer<'a> {
       self.skip_while(|ch| ch.is_whitespace())?;
       self.token()
     } else {
+      use Token::*;
       match c {
-        '}' => self.single(Token::RBRACE),
-        '{' => self.single(Token::LBRACE),
-        '(' => self.single(Token::LPAREN),
-        ')' => self.single(Token::RPAREN),
-        ',' => self.single(Token::COMMA),
-        ':' => self.single(Token::COLON),
-        ';' => self.single(Token::SEMICOLON),
-        '*' => self.single(Token::TIMES),
-        '-' => self.single(Token::MINUS),
-        '+' => self.single(Token::PLUS),
-        '%' => self.single(Token::MOD),
-        '.' => self.single(Token::DOT),
-        '=' => self.maybe_equals(Token::EQUAL, Token::EQEQ),
-        '!' => self.maybe_equals(Token::LNOT, Token::NOTEQ),
-        '<' => self.maybe_equals(Token::LT, Token::LTE),
-        '>' => self.maybe_equals(Token::GT, Token::GTE),
+        '}' => self.single(RBRACE),
+        '{' => self.single(LBRACE),
+        '(' => self.single(LPAREN),
+        ')' => self.single(RPAREN),
+        ',' => self.single(COMMA),
+        ':' => self.single(COLON),
+        ';' => self.single(SEMICOLON),
+        '*' => self.single(TIMES),
+        '-' => self.single(MINUS),
+        '+' => self.single(PLUS),
+        '%' => self.single(MOD),
+        '.' => self.single(DOT),
+        '=' => self.maybe_equals(EQUAL, EQEQ),
+        '!' => self.maybe_equals(LNOT, NOTEQ),
+        '<' => self.maybe_equals(LT, LTE),
+        '>' => self.maybe_equals(GT, GTE),
         '|' => self.pipe(),
         '&' => self.amp(),
         '/' => self.slash(),
