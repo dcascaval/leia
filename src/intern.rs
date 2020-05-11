@@ -1,20 +1,25 @@
-struct Interner<'a> {
-  counter: usize,
-  data: Vec<String>,
-  mapping: HashMap<&'a ast::Var, Var>,
+use crate::ast;
+use std::collections::HashMap;
+
+pub struct Interner {
+  counter: u32,
+  mapping: HashMap<ast::Var, u32>,
 }
 
-impl<'a> Interner<'a> {
-  fn new() -> Self {
+impl Interner {
+  pub fn new() -> Self {
     Self {
       counter: 0,
-      data: Vec::new(),
       mapping: HashMap::new(),
     }
   }
 
-  fn intern(&mut self, var: &'a ast::Var) -> usize {
-    match self.mapping.get(var) {
+  pub fn lookup(&self, _index: &u32) -> &ast::Var {
+    todo!()
+  }
+
+  pub fn intern(&mut self, var: ast::Var) -> u32 {
+    match self.mapping.get(&var) {
       Some(v) => *v,
       None => {
         let result = self.counter;
@@ -24,4 +29,8 @@ impl<'a> Interner<'a> {
       }
     }
   }
+}
+
+pub fn convert(_program: ast::Program<String>) -> (Interner, ast::Program<u32>) {
+  (Interner::new(), ast::Program(Vec::new()))
 }

@@ -9,6 +9,7 @@ mod args;
 mod ast;
 mod bc;
 mod error;
+mod intern;
 mod interpret;
 mod lex;
 mod parse;
@@ -27,7 +28,7 @@ fn reader(name: &str) -> std::io::BufReader<std::fs::File> {
 }
 
 /// Take a filename and parse it into an AST!
-fn make_program(filename: &str) -> std::result::Result<ast::Program, error::Error> {
+fn make_program(filename: &str) -> std::result::Result<ast::Program<ast::Var>, error::Error> {
   let mut file = reader(filename);
   file.fill_buf()?;
   let buf = String::from_utf8_lossy(file.buffer());
@@ -85,7 +86,8 @@ fn main() {
         Err(m) => eprintln!("Type error: {}", m),
       }
 
-      println!("{}", interpret::eval(program));
+      let (interner, program) = intern::convert(program);
+      println!("{}", interpret::eval(interner, program));
       0
     })
     .unwrap();

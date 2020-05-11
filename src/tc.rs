@@ -184,7 +184,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
     }
   }
 
-  fn tc_expr(&mut self, expr: &'src ast::Expr) -> Result<ast::Typ> {
+  fn tc_expr(&mut self, expr: &'src ast::Expr<ast::Var>) -> Result<ast::Typ> {
     use ast::Expr::*;
     match expr {
       // Todo: add variable scoping
@@ -369,7 +369,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
     Ok(base_type.clone())
   }
 
-  fn typeof_lvalue(&self, lvalue: &'src ast::LValue) -> Result<ast::Typ> {
+  fn typeof_lvalue(&self, lvalue: &'src ast::LValue<ast::Var>) -> Result<ast::Typ> {
     use ast::*;
     match lvalue {
       LValue::Ident(v) => self.typeof_variable(v),
@@ -383,7 +383,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
     }
   }
 
-  fn tc_stmt(&mut self, stmt: &'src ast::Stmt) -> Result<ast::Typ> {
+  fn tc_stmt(&mut self, stmt: &'src ast::Stmt<ast::Var>) -> Result<ast::Typ> {
     use ast::Stmt::*;
     match stmt {
       BREAK => Ok(ast::Typ::Unit),
@@ -414,7 +414,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
     }
   }
 
-  fn tc_function(&mut self, return_type: &ast::Typ, body: &'src ast::Expr) -> Result<()> {
+  fn tc_function(&mut self, return_type: &ast::Typ, body: &'src ast::Expr<ast::Var>) -> Result<()> {
     match self.tc_expr(body) {
       Ok(typ) => {
         let return_type = canonical_type!(self, return_type);
@@ -432,7 +432,7 @@ impl<'src, 'fun> Context<'src, 'fun> {
   }
 }
 
-pub fn typecheck<'a>(program: &'a ast::Program) -> Result<()> {
+pub fn typecheck<'a>(program: &'a ast::Program<ast::Var>) -> Result<()> {
   let mut known_types: HashMap<&'a str, &ast::Typ> = HashMap::new();
   let mut known_functions: HashMap<&'a str, ast::Typ> = HashMap::new();
   for gstmt in program.0.iter() {

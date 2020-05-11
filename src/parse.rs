@@ -32,7 +32,7 @@ macro_rules! parse_error {
 }
 
 impl<'a> Parser<'a> {
-  pub fn parse(&mut self) -> Result<ast::Program> {
+  pub fn parse(&mut self) -> Result<ast::Program<ast::Var>> {
     self.program()
   }
 
@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
 
   // --------------------------------  GRAMMAR --------------------------------
 
-  fn program(&mut self) -> Result<ast::Program> {
+  fn program(&mut self) -> Result<ast::Program<ast::Var>> {
     let mut program = Vec::new();
     loop {
       match self.gstmt() {
@@ -91,7 +91,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn gstmt(&mut self) -> Result<ast::Gstmt> {
+  fn gstmt(&mut self) -> Result<ast::Gstmt<ast::Var>> {
     match self.token()? {
       Token::TYPE => self.typedef(),
       Token::FUNCTION => self.fun_defn(),
@@ -99,13 +99,13 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn ret_stmt(&mut self) -> Result<ast::Stmt> {
+  fn ret_stmt(&mut self) -> Result<ast::Stmt<ast::Var>> {
     self.munch(Token::RETURN)?;
     Ok(ast::Stmt::Return(self.expr()?))
   }
 
   // Can be a struct or an enum.
-  fn typedef(&mut self) -> Result<ast::Gstmt> {
+  fn typedef(&mut self) -> Result<ast::Gstmt<ast::Var>> {
     let name = self.ident()?;
     self.munch(Token::EQUAL)?;
     let typ = self.typ()?;
@@ -125,7 +125,7 @@ impl<'a> Parser<'a> {
     ))
   }
 
-  fn arg_list(&mut self) -> Result<ast::Args> {
+  fn arg_list(&mut self) -> Result<ast::Args<ast::Var>> {
     self.munch(Token::LPAREN)?;
     let mut result = Vec::new();
     if let Token::RPAREN = self.peek()? {
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn fun_defn(&mut self) -> Result<ast::Gstmt> {
+  fn fun_defn(&mut self) -> Result<ast::Gstmt<ast::Var>> {
     let name = self.ident()?;
     let args = self.arg_list()?;
     let typ = self.typ()?;
@@ -169,14 +169,14 @@ impl<'a> Parser<'a> {
     })
   }
 
-  fn field(&mut self) -> Result<(String, ast::Typ)> {
+  fn field(&mut self) -> Result<(ast::Var, ast::Typ)> {
     let id = self.ident()?;
     self.munch(Token::COLON)?;
     let typ = self.typ()?;
     Ok((id, typ))
   }
 
-  fn literal_fields(&mut self) -> Result<Vec<(String, ast::Expr)>> {
+  fn literal_fields(&mut self) -> Result<Vec<(ast::Var, ast::Expr<ast::Var>)>> {
     self.munch(Token::LBRACE)?;
     let mut fields = Vec::new();
     loop {
@@ -210,7 +210,7 @@ impl<'a> Parser<'a> {
   }
 
   // Parse an argument list to a function call
-  fn call_list(&mut self) -> Result<Vec<ast::Expr>> {
+  fn call_list(&mut self) -> Result<Vec<ast::Expr<ast::Var>>> {
     self.munch(Token::LPAREN)?;
     let mut args = Vec::new();
     match self.peek()? {
@@ -321,11 +321,11 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn expr(&mut self) -> Result<ast::Expr> {
+  fn expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     self.lor_expr()
   }
 
-  fn stmt(&mut self) -> Result<ast::Stmt> {
+  fn stmt(&mut self) -> Result<ast::Stmt<ast::Var>> {
     match self.peek()? {
       Token::BREAK => Ok(ast::Stmt::BREAK),
       Token::LET => self.let_stmt(),
@@ -335,14 +335,14 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn loop_stmt(&mut self) -> Result<ast::Stmt> {
+  fn loop_stmt(&mut self) -> Result<ast::Stmt<ast::Var>> {
     self.munch(Token::LOOP)?;
     Ok(ast::Stmt::Loop(self.expr()?))
   }
 
   // Todo: patterns
   // todo: mut
-  fn let_stmt(&mut self) -> Result<ast::Stmt> {
+  fn let_stmt(&mut self) -> Result<ast::Stmt<ast::Var>> {
     self.munch(Token::LET)?;
     let name = self.ident()?;
     self.munch(Token::EQUAL)?;
@@ -350,7 +350,7 @@ impl<'a> Parser<'a> {
     Ok(ast::Stmt::Let { name, value })
   }
 
-  fn block_expr(&mut self) -> Result<ast::Expr> {
+  fn block_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     self.munch(Token::LBRACE)?;
     let mut stmts = Vec::new();
     // Todo: this got a bit messy. cleanup
@@ -393,7 +393,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn paren_expr(&mut self) -> Result<ast::Expr> {
+  fn paren_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     self.munch(Token::LPAREN)?;
     let expr = self.expr()?;
     self.munch(Token::RPAREN)?;
@@ -404,7 +404,7 @@ impl<'a> Parser<'a> {
 // --------------------------------  PRECEDENCE  --------------------------------
 macro_rules! expr_tier {
     ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
-        fn $name(&mut self) -> Result<ast::Expr> {
+        fn $name(&mut self) -> Result<ast::Expr<ast::Var>> {
           // println!("{}",stringify!($name));
           let mut expr = self.$next()?;
           loop {
@@ -467,7 +467,7 @@ impl<'a> Parser<'a> {
   // because it basically _is_ a right-unary one, with the additional
   // argument of the type on the right hand side. (We might eventually want to make
   // it bind even tighter than that.)
-  fn as_expr(&mut self) -> Result<ast::Expr> {
+  fn as_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     // println!("as_expr");
     let expr = self.with_expr()?;
     match self.peek() {
@@ -483,7 +483,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn with_expr(&mut self) -> Result<ast::Expr> {
+  fn with_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     // println!("with_expr");
     let expr = self.unary_expr()?;
     match self.peek() {
@@ -507,7 +507,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn unary_expr(&mut self) -> Result<ast::Expr> {
+  fn unary_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     use ast::Expr::*;
     match self.peek() {
       Ok(Token::MINUS) | Ok(Token::LNOT) => {
@@ -526,7 +526,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn access_expr(&mut self) -> Result<ast::Expr> {
+  fn access_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     let expr = self.primary_expr()?;
     let mut results = Vec::new();
     loop {
@@ -548,7 +548,7 @@ impl<'a> Parser<'a> {
     }
   }
 
-  fn cond_expr(&mut self) -> Result<ast::Expr> {
+  fn cond_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     self.munch(Token::IF)?;
     let condition = box self.expr()?;
     self.munch(Token::THEN)?;
@@ -558,7 +558,7 @@ impl<'a> Parser<'a> {
     Ok(ast::Expr::If { condition, t1, t2 })
   }
 
-  fn primary_expr(&mut self) -> Result<ast::Expr> {
+  fn primary_expr(&mut self) -> Result<ast::Expr<ast::Var>> {
     use Token::*;
     // We don't want to skip here because of the other
     // stuff that expressions could 'start' with

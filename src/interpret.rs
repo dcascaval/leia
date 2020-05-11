@@ -1,12 +1,18 @@
 use crate::ast::*;
+use crate::intern::Interner;
 use crate::vm::Value;
 
 use std::collections::HashMap;
 use std::rc::Rc;
 
+// An interned string.
+// We rarely need the actual value of this, but
+// it can be useful to keep around.
+type Var = u32;
+
 // Variable environments
 struct Environment {
-  envs: Vec<HashMap<Var, Rc<Value>>>,
+  envs: Vec<HashMap<Var, Rc<Value<Var>>>>,
 }
 
 impl Environment {
@@ -17,7 +23,7 @@ impl Environment {
     };
   }
 
-  fn def(&mut self, name: &Var, value: Rc<Value>) {
+  fn def(&mut self, name: &Var, value: Rc<Value<Var>>) {
     let env = self.envs.last_mut().unwrap();
     match env.get_mut(name) {
       None => {
@@ -29,7 +35,7 @@ impl Environment {
     }
   }
 
-  fn get(&self, name: &Var) -> Option<Rc<Value>> {
+  fn get(&self, name: &Var) -> Option<Rc<Value<Var>>> {
     for env in self.envs.iter().rev() {
       if let Some(value) = env.get(name) {
         return Some(value.clone());
@@ -38,7 +44,7 @@ impl Environment {
     None
   }
 
-  fn get_mut(&mut self, name: &Var) -> Option<&mut Rc<Value>> {
+  fn get_mut(&mut self, name: &Var) -> Option<&mut Rc<Value<Var>>> {
     for env in self.envs.iter_mut().rev() {
       if let Some(value) = env.get_mut(name) {
         return Some(value);
@@ -56,16 +62,17 @@ impl Environment {
   }
 }
 
-struct Function(Vec<Var>, Expr);
+struct Function(Vec<Var>, Expr<Var>);
 
 // Context of functions
 struct Context {
+  intern: Interner,
   functions: HashMap<Var, Rc<Function>>,
   env: Environment,
 }
 
 impl Context {
-  fn new(program: Program) -> Self {
+  fn new(intern: Interner, program: Program<Var>) -> Self {
     let mut functions = HashMap::new();
 
     for gstmt in program.0.into_iter() {
@@ -79,6 +86,7 @@ impl Context {
     }
 
     return Self {
+      intern,
       functions,
       env: Environment::new(),
     };
@@ -88,13 +96,17 @@ impl Context {
   // the lvalue. This is the value we will try to modify, and if we can't
   // modify it, we will mutate this instance of it, splitting out from
   // all the rest.
-  fn mutable_access<'a>(value: &'a mut Rc<Value>, name: &Var) -> &'a mut Rc<Value> {
+  fn mutable_access<'a>(
+    intern: &Interner,
+    value: &'a mut Rc<Value<Var>>,
+    name: &Var,
+  ) -> &'a mut Rc<Value<Var>> {
     // Todo: closer investigation around the mutability
     // here. How often does it really copy? Does the hashmap's
     // pair always force a clone? Can we get a reference into the map?
     match Rc::make_mut(value) {
       Value::Tuple(fields) => {
-        let i = name.parse::<usize>().unwrap();
+        let i = intern.lookup(name).parse::<usize>().unwrap();
         return &mut fields[i];
       }
       Value::Struct(fields) => {
@@ -109,10 +121,10 @@ impl Context {
     }
   }
 
-  fn access<'a>(value: Rc<Value>, name: &Var) -> Rc<Value> {
+  fn access<'a>(intern: &Interner, value: Rc<Value<Var>>, name: &Var) -> Rc<Value<Var>> {
     match value.as_ref() {
       Value::Tuple(fields) => {
-        let i = name.parse::<usize>().unwrap();
+        let i = intern.lookup(name).parse::<usize>().unwrap();
         return fields[i].clone();
       }
       Value::Struct(fields) => {
@@ -127,7 +139,7 @@ impl Context {
     }
   }
 
-  fn eval_lvalue<'a>(&'a mut self, lval: &LValue) -> &mut Rc<Value> {
+  fn eval_lvalue<'a>(&'a mut self, lval: &LValue<Var>) -> &mut Rc<Value<Var>> {
     match lval {
       LValue::Ident(v) => self.env.get_mut(v).expect("Undefined variable"),
       LValue::Access(vars) => match &vars[..] {
@@ -135,7 +147,7 @@ impl Context {
         [v, vs @ ..] => {
           let mut cell = self.env.get_mut(v).expect("Undefined variable");
           for v in vs.iter() {
-            cell = Context::mutable_access(cell, v);
+            cell = Context::mutable_access(&self.intern, cell, v);
           }
           cell
         }
@@ -143,7 +155,7 @@ impl Context {
     }
   }
 
-  fn eval_stmt(&mut self, stmt: &Stmt) -> Option<Rc<Value>> {
+  fn eval_stmt(&mut self, stmt: &Stmt<Var>) -> Option<Rc<Value<Var>>> {
     use Stmt::*;
     match stmt {
       Let { name, value } => {
@@ -164,7 +176,7 @@ impl Context {
     }
   }
 
-  fn eval_binop(op: BinOp, lhs: Rc<Value>, rhs: Rc<Value>) -> Value {
+  fn eval_binop(op: BinOp, lhs: Rc<Value<Var>>, rhs: Rc<Value<Var>>) -> Value<Var> {
     let (lhs, rhs) = (lhs.as_ref().clone(), rhs.as_ref().clone());
     match op {
       BinOp::Add => lhs + rhs,
@@ -183,7 +195,7 @@ impl Context {
     }
   }
 
-  fn eval_unop(op: UnOp, rhs: Rc<Value>) -> Value {
+  fn eval_unop(op: UnOp, rhs: Rc<Value<Var>>) -> Value<Var> {
     let rhs = rhs.as_ref().clone();
     match op {
       UnOp::Not => !rhs,
@@ -193,7 +205,7 @@ impl Context {
 
   // What if we don't want to allocate for "just a dumb int"?
   // Soln: Custom value container. It might be an Rc, it might not.
-  fn eval_expr(&mut self, expr: &Expr) -> Rc<Value> {
+  fn eval_expr(&mut self, expr: &Expr<Var>) -> Rc<Value<Var>> {
     use Expr::*;
 
     match expr {
@@ -268,7 +280,7 @@ impl Context {
       FieldAccess { expr, fields } => {
         let mut lhs = self.eval_expr(expr);
         for field in fields.iter() {
-          lhs = Context::access(lhs, field)
+          lhs = Context::access(&self.intern, lhs, field)
         }
         lhs
       }
@@ -277,7 +289,7 @@ impl Context {
           .iter()
           .map(|a| self.eval_expr(a).as_ref().clone())
           .collect();
-        self.eval_fn(function, args)
+        self.eval_fn(*function, args)
       }
       If { condition, t1, t2 } => {
         if let Value::Bool(b) = &*self.eval_expr(condition) {
@@ -295,8 +307,8 @@ impl Context {
     }
   }
 
-  fn eval_fn(&mut self, name: &Var, args: Vec<Value>) -> Rc<Value> {
-    let func = self.functions.get(name).expect("fn").clone();
+  fn eval_fn(&mut self, name: Var, args: Vec<Value<Var>>) -> Rc<Value<Var>> {
+    let func = self.functions.get(&name).expect("fn").clone();
     let (arg_names, body) = (
       &func.0,
       match &func.1 {
@@ -314,7 +326,8 @@ impl Context {
   }
 }
 
-pub fn eval(program: Program) -> Value {
-  let mut ctx = Context::new(program);
-  ctx.eval_fn(&String::from("main"), vec![]).as_ref().clone()
+pub fn eval(mut intern: Interner, program: Program<Var>) -> Value<Var> {
+  let main = intern.intern("main".to_string());
+  let mut ctx = Context::new(intern, program);
+  ctx.eval_fn(main, vec![]).as_ref().clone()
 }

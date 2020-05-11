@@ -5,6 +5,7 @@
 //  it is compiled into a single stream of code and interpreted.
 
 use crate::ast;
+use std::fmt::Debug;
 
 struct Location {
   index: u32,
@@ -54,7 +55,7 @@ struct Context {}
 
 type Program = Vec<Vec<Instruction>>;
 
-fn cg_ast(_program: ast::Program) -> Program {
+fn cg_ast<T: Debug>(_program: ast::Program<T>) -> Program {
   unimplemented!()
 }
 

@@ -1,20 +1,17 @@
-use crate::ast::*;
-
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Value {
+pub enum Value<Var: Display> {
   Unit,
   Int(i64),
   Bool(bool),
   Float(f64),
-  Tuple(Vec<Rc<Value>>),
-  Struct(Vec<(String, Rc<Value>)>),
+  Tuple(Vec<Rc<Value<Var>>>),
+  Struct(Vec<(Var, Rc<Value<Var>>)>),
 }
 
-impl Display for Value {
+impl<Var: Display> Display for Value<Var> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Value::Unit => write!(f, "()"),
@@ -47,9 +44,9 @@ impl Display for Value {
 
 macro_rules! impl_arith {
   ($name:ident, $func:ident, $op: tt) => {
-    impl std::ops::$name for Value {
-      type Output = Value;
-      fn $func(self, rhs: Value) -> Self::Output {
+    impl<Var: Display + PartialEq> std::ops::$name for Value<Var> {
+      type Output = Value<Var>;
+      fn $func(self, rhs: Value<Var>) -> Self::Output {
         match (self, rhs) {
           (Value::Int(i), Value::Int(j)) => Value::Int(i $op j),
           (Value::Float(i), Value::Float(j)) => Value::Float(i $op j),
@@ -62,8 +59,8 @@ macro_rules! impl_arith {
   };
 }
 
-impl std::cmp::PartialOrd for Value {
-  fn partial_cmp(&self, other: &Value) -> Option<std::cmp::Ordering> {
+impl<Var: Display + PartialEq> std::cmp::PartialOrd for Value<Var> {
+  fn partial_cmp(&self, other: &Value<Var>) -> Option<std::cmp::Ordering> {
     match (self, other) {
       (Value::Int(i), Value::Int(j)) => i.partial_cmp(j),
       (Value::Float(i), Value::Float(j)) => i.partial_cmp(j),
@@ -80,8 +77,8 @@ impl_arith!(Mul,mul,*);
 impl_arith!(Div,div,/);
 impl_arith!(Rem,rem,%);
 
-impl std::ops::Neg for Value {
-  type Output = Value;
+impl<Var: Display + PartialEq> std::ops::Neg for Value<Var> {
+  type Output = Value<Var>;
   fn neg(self) -> Self::Output {
     match self {
       Value::Float(f) => Value::Float(-f),
@@ -91,8 +88,8 @@ impl std::ops::Neg for Value {
   }
 }
 
-impl std::ops::Not for Value {
-  type Output = Value;
+impl<Var: Display + PartialEq> std::ops::Not for Value<Var> {
+  type Output = Value<Var>;
   fn not(self) -> Self::Output {
     match self {
       Value::Bool(b) => Value::Bool(!b),
@@ -101,52 +98,41 @@ impl std::ops::Not for Value {
   }
 }
 
-impl Value {
-  pub fn lt(self, other: Value) -> Value {
+impl<Var: Display + PartialEq> Value<Var> {
+  pub fn lt(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(self < other)
   }
-  pub fn lte(self, other: Value) -> Value {
+  pub fn lte(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(self <= other)
   }
-  pub fn gt(self, other: Value) -> Value {
+  pub fn gt(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(self > other)
   }
-  pub fn gte(self, other: Value) -> Value {
+  pub fn gte(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(self >= other)
   }
-  pub fn eq(self, other: Value) -> Value {
+  pub fn eq(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(self.equals(other))
   }
-  pub fn neq(self, other: Value) -> Value {
+  pub fn neq(self, other: Value<Var>) -> Value<Var> {
     Value::Bool(!self.equals(other))
   }
   // implement!
-  fn equals(self, _other: Value) -> bool {
+  fn equals(self, _other: Value<Var>) -> bool {
     todo!()
   }
 
-  pub fn and(self, other: Value) -> Value {
+  pub fn and(self, other: Value<Var>) -> Value<Var> {
     match (self, other) {
       (Value::Bool(s), Value::Bool(o)) => Value::Bool(s && o),
       _ => panic!("Non-boolean &&"),
     }
   }
 
-  pub fn or(self, other: Value) -> Value {
+  pub fn or(self, other: Value<Var>) -> Value<Var> {
     match (self, other) {
       (Value::Bool(s), Value::Bool(o)) => Value::Bool(s || o),
       _ => panic!("Non-boolean &&"),
     }
   }
-}
-
-struct VM {
-  variables: HashMap<String, Value>,
-}
-
-fn eval_stmt(_stmt: Stmt) -> Value {
-  todo!()
-}
-fn eval(_program: Program) -> Value {
-  todo!()
 }
