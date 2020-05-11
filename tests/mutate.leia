@@ -1,0 +1,23 @@
+// test 16
+
+type a = { 
+  x : int, 
+  y : int
+}
+
+type comp = { 
+  x : int, 
+  y : a
+}
+
+fn main() int { 
+  let m = comp { 
+    x : 1,
+    y : a { x: 2, y: 3 }
+  };
+  let k = m.x;
+  m.y.y = 11;
+  k = m.y.x + 2;
+  m.x + k + m.y.y
+}
+

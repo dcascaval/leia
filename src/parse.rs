@@ -353,12 +353,41 @@ impl<'a> Parser<'a> {
   fn block_expr(&mut self) -> Result<ast::Expr> {
     self.munch(Token::LBRACE)?;
     let mut stmts = Vec::new();
+    // Todo: this got a bit messy. cleanup
     loop {
+      if let Token::RBRACE = self.peek()? {
+        self.skip()?;
+        return Ok(ast::Expr::Statements(stmts));
+      }
       let expr = self.stmt()?;
-      stmts.push(expr);
       match self.token()? {
-        Token::SEMICOLON => (),
-        Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+        Token::SEMICOLON => {
+          stmts.push(expr);
+        }
+        Token::RBRACE => {
+          stmts.push(expr);
+          return Ok(ast::Expr::Statements(stmts));
+        }
+        Token::EQUAL => {
+          if let ast::Stmt::Expr(e) = expr {
+            let lhs = e.to_lvalue()?;
+            let rhs = self.expr()?;
+            stmts.push(ast::Stmt::Assign {
+              target: lhs,
+              value: rhs,
+            });
+            match self.token()? {
+              Token::SEMICOLON => continue,
+              Token::RBRACE => return Ok(ast::Expr::Statements(stmts)),
+              _ => (),
+            }
+          }
+          return parse_error!(
+            self,
+            "Unexpected token {:?} after non-expression",
+            Token::EQUAL
+          );
+        }
         tok => return parse_error!(self, "Unexpected token {:?} after expression", tok),
       };
     }
@@ -376,7 +405,7 @@ impl<'a> Parser<'a> {
 macro_rules! expr_tier {
     ($name:ident, $next:ident, $($tok:pat = $op:expr),+) => {
         fn $name(&mut self) -> Result<ast::Expr> {
-          // println!("Push {}",stringify!($name));
+          // println!("{}",stringify!($name));
           let mut expr = self.$next()?;
           loop {
             let op = match self.peek() {
@@ -439,6 +468,7 @@ impl<'a> Parser<'a> {
   // argument of the type on the right hand side. (We might eventually want to make
   // it bind even tighter than that.)
   fn as_expr(&mut self) -> Result<ast::Expr> {
+    // println!("as_expr");
     let expr = self.with_expr()?;
     match self.peek() {
       Ok(Token::AS) => {
@@ -454,6 +484,7 @@ impl<'a> Parser<'a> {
   }
 
   fn with_expr(&mut self) -> Result<ast::Expr> {
+    // println!("with_expr");
     let expr = self.unary_expr()?;
     match self.peek() {
       Ok(Token::WITH) => {
@@ -483,13 +514,13 @@ impl<'a> Parser<'a> {
         let op = self.unop()?;
         // println!("Push unary_expr");
         let expr = self.access_expr()?;
-        // println!("Pop unary_expr");
+        // println!("Pop unary_expr ({:?})", expr);
         Ok(UnaryOp { op, rhs: box expr })
       }
       _ => {
         // println!("Push unary_expr");
         let result = self.access_expr();
-        // println!("Pop unary_expr");
+        // println!("Pop unary_expr ({:?})", result);
         result
       }
     }

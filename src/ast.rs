@@ -1,3 +1,4 @@
+use crate::error::{err, Result};
 use std::fmt::Debug;
 
 pub type Var = String;
@@ -139,4 +140,22 @@ pub enum Expr {
     t2: Box<Expr>,
   },
   Match(Vec<(Pattern, Stmt)>),
+}
+
+impl Expr {
+  pub fn to_lvalue(self) -> Result<LValue> {
+    match self {
+      Expr::Variable(v) => Ok(LValue::Ident(v)),
+      Expr::FieldAccess {
+        expr: box Expr::Variable(v),
+        fields: access,
+      } => {
+        let mut vec = Vec::with_capacity(access.len() + 1);
+        vec.push(v);
+        vec.extend(access);
+        Ok(LValue::Access(vec))
+      }
+      other => err(format!("{:?} isn't an l-value", other)),
+    }
+  }
 }
