@@ -23,11 +23,11 @@ impl Environment {
     };
   }
 
-  fn def(&mut self, name: &Var, value: Rc<Value<Var>>) {
+  fn def(&mut self, name: Var, value: Rc<Value<Var>>) {
     let env = self.envs.last_mut().unwrap();
-    match env.get_mut(name) {
+    match env.get_mut(&name) {
       None => {
-        env.insert(name.clone(), value);
+        env.insert(name, value);
       }
       Some(entry) => {
         *entry = value;
@@ -35,9 +35,9 @@ impl Environment {
     }
   }
 
-  fn get(&self, name: &Var) -> Option<Rc<Value<Var>>> {
+  fn get(&self, name: Var) -> Option<Rc<Value<Var>>> {
     for env in self.envs.iter().rev() {
-      if let Some(value) = env.get(name) {
+      if let Some(value) = env.get(&name) {
         return Some(value.clone());
       }
     }
@@ -106,6 +106,9 @@ impl Context {
     // pair always force a clone? Can we get a reference into the map?
     match Rc::make_mut(value) {
       Value::Tuple(fields) => {
+        // Todo: make this less stupid by enforcing that numerical
+        // indices actually get their corresponding u32, and so can
+        // be used to index directly.
         let i = intern.lookup(name).parse::<usize>().unwrap();
         return &mut fields[i];
       }
@@ -160,7 +163,7 @@ impl Context {
     match stmt {
       Let { name, value } => {
         let result = self.eval_expr(value);
-        self.env.def(name, result);
+        self.env.def(*name, result);
         None
       }
       Assign { value, target } => {
@@ -232,7 +235,7 @@ impl Context {
       StructLiteral { fields, .. } => Rc::new(Value::Struct(
         fields
           .iter()
-          .map(|(f, e)| (f.clone(), self.eval_expr(e)))
+          .map(|(f, e)| (*f, self.eval_expr(e)))
           .collect(),
       )),
       TupleLiteral(fields) => Rc::new(Value::Tuple(
@@ -270,7 +273,7 @@ impl Context {
         let rhs = self.eval_expr(rhs);
         Rc::new(Context::eval_unop(*op, rhs))
       }
-      Variable(name) => match self.env.get(name) {
+      Variable(name) => match self.env.get(*name) {
         Some(value) => value,
         None => {
           eprintln!("undefined variable: {}", name);
@@ -318,7 +321,7 @@ impl Context {
     );
     self.env.push();
     for (name, arg) in arg_names.iter().zip(args.into_iter()) {
-      self.env.def(name, Rc::new(arg));
+      self.env.def(*name, Rc::new(arg));
     }
     let result = self.eval_expr(body);
     self.env.pop();
